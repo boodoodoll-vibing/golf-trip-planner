@@ -21,7 +21,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" className="light">
       <head>
         {/* PWA Meta Tags */}
         <link rel="manifest" href="/manifest.json" />

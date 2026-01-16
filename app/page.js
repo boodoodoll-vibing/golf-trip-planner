@@ -407,8 +407,8 @@ export default function GolfTripPlanner() {
   const getFlightEvents = () => {
     const events = [];
     players.forEach(p => {
-      if (p.name && p.arrivalDate) events.push({ type: "arrival", player: p.name, date: p.arrivalDate, time: p.arrivalTime, airport: p.arrivalAirport, flight: p.arrivalFlight });
-      if (p.name && p.departureDate) events.push({ type: "departure", player: p.name, date: p.departureDate, time: p.departureTime, airport: p.departureAirport, flight: p.departureFlight });
+      if (p.name && p.arrivalDate) events.push({ type: "arrival", player: p.name, avatarUrl: p.avatarUrl, date: p.arrivalDate, time: p.arrivalTime, airport: p.arrivalAirport, flight: p.arrivalFlight });
+      if (p.name && p.departureDate) events.push({ type: "departure", player: p.name, avatarUrl: p.avatarUrl, date: p.departureDate, time: p.departureTime, airport: p.departureAirport, flight: p.departureFlight });
     });
     return events.sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || ""));
   };
@@ -464,11 +464,11 @@ export default function GolfTripPlanner() {
     const isLoading = flightStatusLoading[flightNumber];
 
     if (isLoading) {
-      return { label: "Checking...", color: "text-gray-500", bg: "bg-gray-50", loading: true };
+      return { label: "Checking...", color: "text-gray-500 dark:text-gray-400 dark:text-gray-500", bg: "bg-gray-50", loading: true };
     }
 
     if (!cached) {
-      return { label: "—", color: "text-gray-400", bg: "bg-gray-50" };
+      return { label: "—", color: "text-gray-400 dark:text-gray-500", bg: "bg-gray-50" };
     }
 
     // Map API response to display format
@@ -479,8 +479,8 @@ export default function GolfTripPlanner() {
       cancelled: { label: "Cancelled", color: "text-red-600", bg: "bg-red-50" },
       diverted: { label: "Diverted", color: "text-yellow-600", bg: "bg-yellow-50" },
       incident: { label: "Incident", color: "text-red-600", bg: "bg-red-50" },
-      not_found: { label: "Not Found", color: "text-gray-500", bg: "bg-gray-50" },
-      error: { label: "Unknown", color: "text-gray-500", bg: "bg-gray-50" },
+      not_found: { label: "Not Found", color: "text-gray-500 dark:text-gray-400 dark:text-gray-500", bg: "bg-gray-50" },
+      error: { label: "Unknown", color: "text-gray-500 dark:text-gray-400 dark:text-gray-500", bg: "bg-gray-50" },
     };
 
     const base = statusColors[cached.status] || statusColors.scheduled;
@@ -561,11 +561,14 @@ export default function GolfTripPlanner() {
     if (avatarFile) {
       const fileName = `avatars/${editingPlayerId}_${Date.now()}.${avatarFile.name.split('.').pop()}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('avatars')
+        .from('receipts')  // Use existing receipts bucket
         .upload(fileName, avatarFile);
 
+      if (uploadError) {
+        console.error('Avatar upload error:', uploadError);
+      }
       if (!uploadError && uploadData) {
-        const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(fileName);
+        const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(fileName);
         avatarUrl = urlData?.publicUrl;
       }
     }
@@ -805,6 +808,7 @@ export default function GolfTripPlanner() {
   };
 
   const getPlayerName = (playerId) => players.find(p => p.id === playerId)?.name || 'Unknown';
+  const getPlayerAvatar = (playerId) => players.find(p => p.id === playerId)?.avatarUrl || null;
   const getCategoryIcon = (cat) => EXPENSE_CATEGORIES.find(c => c.type === cat)?.icon || '📌';
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -831,7 +835,7 @@ export default function GolfTripPlanner() {
           <div className="w-48 h-1 bg-slate-200 rounded-full overflow-hidden mx-auto">
             <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full animate-pulse" style={{ width: '60%' }}></div>
           </div>
-          <p className="text-slate-500 mt-4 text-sm font-medium">Loading your trip...</p>
+          <p className="text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-4 text-sm font-medium">Loading your trip...</p>
         </div>
       </div>
     );
@@ -843,8 +847,8 @@ export default function GolfTripPlanner() {
         {/* Beautiful Header */}
         <div className="pt-12 pb-8 px-6 text-center">
           <div className="text-5xl mb-4">⛳</div>
-          <h1 className="text-display text-slate-800">Golf Trip</h1>
-          <p className="text-slate-500 mt-2 font-medium">{trip.name}</p>
+          <h1 className="text-display text-slate-800 dark:text-slate-100">Golf Trip</h1>
+          <p className="text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-2 font-medium">{trip.name}</p>
         </div>
 
         <div className="flex-1 px-5 pb-8 flex flex-col justify-center max-w-md mx-auto w-full">
@@ -853,8 +857,8 @@ export default function GolfTripPlanner() {
             <button
               onClick={() => setAuthMode("login")}
               className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${authMode === "login"
-                ? "bg-white shadow-md text-slate-800"
-                : "text-slate-500 hover:text-slate-700"
+                ? "bg-white dark:bg-slate-800 shadow-md text-slate-800 dark:text-slate-100"
+                : "text-slate-500 dark:text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:text-slate-200"
                 }`}
             >
               Sign In
@@ -862,8 +866,8 @@ export default function GolfTripPlanner() {
             <button
               onClick={() => setAuthMode("register")}
               className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${authMode === "register"
-                ? "bg-white shadow-md text-slate-800"
-                : "text-slate-500 hover:text-slate-700"
+                ? "bg-white dark:bg-slate-800 shadow-md text-slate-800 dark:text-slate-100"
+                : "text-slate-500 dark:text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:text-slate-200"
                 }`}
             >
               Join Trip
@@ -872,13 +876,13 @@ export default function GolfTripPlanner() {
 
           {/* Auth Card */}
           <div className="glass-card p-6 rounded-3xl animate-fade-in">
-            <h2 className="text-heading text-slate-800 mb-6">
+            <h2 className="text-heading text-slate-800 dark:text-slate-100 mb-6">
               {authMode === "login" ? "Welcome back" : "Join the adventure"}
             </h2>
 
             {authMode === "register" && (
               <div className="mb-5">
-                <label className="text-sm text-slate-500 font-medium block mb-2">Your Name</label>
+                <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">Your Name</label>
                 <input
                   type="text"
                   value={authForm.name}
@@ -890,7 +894,7 @@ export default function GolfTripPlanner() {
             )}
 
             <div className="mb-5">
-              <label className="text-sm text-slate-500 font-medium block mb-2">Phone Number</label>
+              <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">Phone Number</label>
               <input
                 type="tel"
                 value={authForm.phone}
@@ -901,7 +905,7 @@ export default function GolfTripPlanner() {
             </div>
 
             <div className="mb-6">
-              <label className="text-sm text-slate-500 font-medium block mb-2">
+              <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">
                 {authMode === "register" ? "Create 4-digit PIN" : "Your PIN"}
               </label>
               <input
@@ -930,7 +934,7 @@ export default function GolfTripPlanner() {
           </div>
 
           {players.length > 0 && (
-            <p className="text-center text-sm text-slate-400 mt-6">
+            <p className="text-center text-sm text-slate-400 dark:text-slate-500 mt-6">
               👥 {players.length} player{players.length !== 1 ? 's' : ''} already joined
             </p>
           )}
@@ -956,7 +960,7 @@ export default function GolfTripPlanner() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="font-bold text-slate-800 text-sm">{trip.name}</h1>
+                  <h1 className="font-bold text-slate-800 dark:text-slate-100 text-sm">{trip.name}</h1>
                   {syncStatus === 'connecting' && (
                     <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-semibold rounded-full animate-pulse">
                       Syncing...
@@ -968,7 +972,7 @@ export default function GolfTripPlanner() {
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500">{trip.destination}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">{trip.destination}</p>
               </div>
             </div>
             <button
@@ -982,7 +986,7 @@ export default function GolfTripPlanner() {
                   {currentUser.name.charAt(0)}
                 </span>
               )}
-              <span className="text-xs text-slate-500 font-medium hidden sm:block">Logout</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium hidden sm:block">Logout</span>
             </button>
           </div>
         </div>
@@ -997,7 +1001,7 @@ export default function GolfTripPlanner() {
           transform: `translateX(-50%) scale(${Math.min(pullDistance / PULL_THRESHOLD, 1)})`
         }}
       >
-        <div className={`w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center ${isRefreshing ? 'animate-spin' : ''}`}>
+        <div className={`w-10 h-10 rounded-full bg-white dark:bg-slate-800 shadow-lg flex items-center justify-center ${isRefreshing ? 'animate-spin' : ''}`}>
           <svg
             className="w-5 h-5 text-emerald-500"
             fill="none"
@@ -1057,23 +1061,23 @@ export default function GolfTripPlanner() {
             {/* Edit Trip Modal */}
             {editingTrip && (
               <div className="glass-card p-5 rounded-2xl animate-scale-in border-2 border-emerald-400">
-                <h3 className="font-bold text-slate-800 mb-4">Edit Trip Details</h3>
+                <h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Edit Trip Details</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="text-xs text-slate-500 font-medium">Trip Name</label>
+                    <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">Trip Name</label>
                     <input type="text" value={tripForm.name} onChange={e => setTripForm({ ...tripForm, name: e.target.value })} className="input mt-1" />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-500 font-medium">Destination</label>
+                    <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">Destination</label>
                     <input type="text" value={tripForm.destination} onChange={e => setTripForm({ ...tripForm, destination: e.target.value })} className="input mt-1" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs text-slate-500 font-medium">Start Date</label>
+                      <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">Start Date</label>
                       <input type="date" value={tripForm.startDate} onChange={e => setTripForm({ ...tripForm, startDate: e.target.value })} className="input mt-1" />
                     </div>
                     <div>
-                      <label className="text-xs text-slate-500 font-medium">End Date</label>
+                      <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">End Date</label>
                       <input type="date" value={tripForm.endDate} onChange={e => setTripForm({ ...tripForm, endDate: e.target.value })} className="input mt-1" />
                     </div>
                   </div>
@@ -1092,21 +1096,21 @@ export default function GolfTripPlanner() {
                 className="glass-card p-4 rounded-2xl text-center interactive"
               >
                 <p className="text-2xl font-bold text-emerald-600">{completedProfiles}</p>
-                <p className="text-xs text-slate-500 font-medium mt-1">Players</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium mt-1">Players</p>
               </button>
               <button
                 onClick={() => setCurrentView("courses")}
                 className="glass-card p-4 rounded-2xl text-center interactive"
               >
                 <p className="text-2xl font-bold text-teal-600">{GOLF_COURSES.filter(c => c.scheduledDates.length > 0).length}</p>
-                <p className="text-xs text-slate-500 font-medium mt-1">Courses</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium mt-1">Courses</p>
               </button>
               <button
                 onClick={() => setCurrentView("costs")}
                 className="glass-card p-4 rounded-2xl text-center interactive"
               >
                 <p className="text-2xl font-bold text-blue-600">${totalExpenses.toFixed(0)}</p>
-                <p className="text-xs text-slate-500 font-medium mt-1">Total</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium mt-1">Total</p>
               </button>
             </div>
 
@@ -1154,24 +1158,24 @@ export default function GolfTripPlanner() {
                 <div className="space-y-4">
                   {/* Arrivals Section */}
                   {arrivals.length > 0 && (
-                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                      <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-cyan-50 border-b border-slate-100">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-600 overflow-hidden">
+                      <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-cyan-50 border-b border-slate-100 dark:border-slate-600">
                         <div className="flex items-center gap-2">
                           <span className="text-lg">✈️</span>
-                          <h3 className="font-semibold text-slate-800">Arrivals</h3>
-                          <span className="ml-auto text-xs text-slate-500 bg-white px-2 py-0.5 rounded-full">{arrivals.length}</span>
+                          <h3 className="font-semibold text-slate-800 dark:text-slate-100">Arrivals</h3>
+                          <span className="ml-auto text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-full">{arrivals.length}</span>
                         </div>
                       </div>
                       <div className="divide-y divide-slate-100">
                         {arrivals.map((arr, idx) => (
-                          <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                          <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:bg-slate-700 transition-colors">
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-sm flex-shrink-0">
                                 {arr.player.charAt(0).toUpperCase()}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="font-medium text-slate-800 truncate">{arr.player}</p>
-                                <p className="text-xs text-slate-500">
+                                <p className="font-medium text-slate-800 dark:text-slate-100 truncate">{arr.player}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">
                                   {arr.date && new Date(arr.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                                   {arr.time && ` • ${arr.time}`}
                                 </p>
@@ -1179,8 +1183,8 @@ export default function GolfTripPlanner() {
                             </div>
                             <div className="flex items-center gap-3 flex-shrink-0">
                               <div className="text-right">
-                                <p className="text-sm font-medium text-slate-700">{arr.airport || '—'}</p>
-                                <p className="text-xs text-slate-400">{arr.flight || 'No flight #'}</p>
+                                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{arr.airport || '—'}</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500">{arr.flight || 'No flight #'}</p>
                               </div>
                               {arr.status && (
                                 <span className={`text-xs font-medium px-2 py-1 rounded-full ${arr.status.bg} ${arr.status.color}`}>
@@ -1196,24 +1200,24 @@ export default function GolfTripPlanner() {
 
                   {/* Departures Section */}
                   {departures.length > 0 && (
-                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                      <div className="px-4 py-3 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-slate-100">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-600 overflow-hidden">
+                      <div className="px-4 py-3 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-slate-100 dark:border-slate-600">
                         <div className="flex items-center gap-2">
                           <span className="text-lg">🛫</span>
-                          <h3 className="font-semibold text-slate-800">Departures</h3>
-                          <span className="ml-auto text-xs text-slate-500 bg-white px-2 py-0.5 rounded-full">{departures.length}</span>
+                          <h3 className="font-semibold text-slate-800 dark:text-slate-100">Departures</h3>
+                          <span className="ml-auto text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-full">{departures.length}</span>
                         </div>
                       </div>
                       <div className="divide-y divide-slate-100">
                         {departures.map((dep, idx) => (
-                          <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                          <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:bg-slate-700 transition-colors">
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-semibold text-sm flex-shrink-0">
                                 {dep.player.charAt(0).toUpperCase()}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="font-medium text-slate-800 truncate">{dep.player}</p>
-                                <p className="text-xs text-slate-500">
+                                <p className="font-medium text-slate-800 dark:text-slate-100 truncate">{dep.player}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">
                                   {dep.date && new Date(dep.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                                   {dep.time && ` • ${dep.time}`}
                                 </p>
@@ -1221,8 +1225,8 @@ export default function GolfTripPlanner() {
                             </div>
                             <div className="flex items-center gap-3 flex-shrink-0">
                               <div className="text-right">
-                                <p className="text-sm font-medium text-slate-700">{dep.airport || '—'}</p>
-                                <p className="text-xs text-slate-400">{dep.flight || 'No flight #'}</p>
+                                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{dep.airport || '—'}</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500">{dep.flight || 'No flight #'}</p>
                               </div>
                               {dep.status && (
                                 <span className={`text-xs font-medium px-2 py-1 rounded-full ${dep.status.bg} ${dep.status.color}`}>
@@ -1241,11 +1245,11 @@ export default function GolfTripPlanner() {
 
             {/* Squad Preview */}
             <div className="glass-card rounded-2xl overflow-hidden">
-              <div className="p-4 border-b border-slate-100">
+              <div className="p-4 border-b border-slate-100 dark:border-slate-600">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h3 className="font-bold text-slate-800">The Squad</h3>
-                    <p className="text-xs text-slate-400">Live status updates</p>
+                    <h3 className="font-bold text-slate-800 dark:text-slate-100">The Squad</h3>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">Live status updates</p>
                   </div>
                   <button
                     onClick={() => setCurrentView("players")}
@@ -1259,7 +1263,7 @@ export default function GolfTripPlanner() {
               {players.length === 0 ? (
                 <div className="p-8 text-center">
                   <span className="text-4xl block mb-3">👥</span>
-                  <p className="text-slate-400 text-sm">No players yet. Share the invite!</p>
+                  <p className="text-slate-400 dark:text-slate-500 text-sm">No players yet. Share the invite!</p>
                 </div>
               ) : (
                 <div className="divide-y divide-slate-50">
@@ -1273,17 +1277,17 @@ export default function GolfTripPlanner() {
                           ) : (
                             <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm shadow-sm ${isMe
                               ? "bg-gradient-to-br from-emerald-400 to-teal-500 text-white"
-                              : "bg-slate-100 text-slate-600"
+                              : "bg-slate-100 text-slate-600 dark:text-slate-300"
                               }`}>
                               {player.name.charAt(0).toUpperCase()}
                             </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-slate-800 truncate">
+                            <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">
                               {player.name}
                               {isMe && <span className="text-xs text-emerald-500 ml-1.5 font-medium">(You)</span>}
                             </p>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-xs text-slate-400 dark:text-slate-500">
                               {player.handicap ? `HCP ${player.handicap}` : 'No handicap'}
                               {hasFlightInfo(player) && ' • ✈️ Flight info added'}
                             </p>
@@ -1314,16 +1318,16 @@ export default function GolfTripPlanner() {
                 className="glass-card p-4 rounded-2xl text-left interactive group"
               >
                 <span className="text-2xl block mb-2 group-hover:scale-110 transition-transform origin-left">✏️</span>
-                <p className="font-semibold text-slate-800 text-sm">Edit Profile</p>
-                <p className="text-xs text-slate-400">Update your info</p>
+                <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm">Edit Profile</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">Update your info</p>
               </button>
               <button
                 onClick={() => setCurrentView("schedule")}
                 className="glass-card p-4 rounded-2xl text-left interactive group"
               >
                 <span className="text-2xl block mb-2 group-hover:scale-110 transition-transform origin-left">📅</span>
-                <p className="font-semibold text-slate-800 text-sm">View Schedule</p>
-                <p className="text-xs text-slate-400">See the itinerary</p>
+                <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm">View Schedule</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">See the itinerary</p>
               </button>
             </div>
           </div>
@@ -1336,8 +1340,8 @@ export default function GolfTripPlanner() {
               <div className="glass-card p-5 rounded-2xl">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-xl font-bold text-slate-800">The Squad</h2>
-                    <p className="text-sm text-slate-500">{completedProfiles} of {players.length} profiles complete</p>
+                    <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">The Squad</h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">{completedProfiles} of {players.length} profiles complete</p>
                   </div>
                   <div className="flex -space-x-2">
                     {players.slice(0, 5).map(p => (
@@ -1350,7 +1354,7 @@ export default function GolfTripPlanner() {
                       )
                     ))}
                     {players.length > 5 && (
-                      <div className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-slate-600 text-xs font-bold">
+                      <div className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-slate-600 dark:text-slate-300 text-xs font-bold">
                         +{players.length - 5}
                       </div>
                     )}
@@ -1374,23 +1378,23 @@ export default function GolfTripPlanner() {
                         </div>
                       )}
                       <div className="text-left">
-                        <p className="font-bold text-slate-800">{player.name} <span className="text-xs text-emerald-600 font-semibold">(You)</span></p>
-                        <p className="text-xs text-slate-500">
+                        <p className="font-bold text-slate-800 dark:text-slate-100">{player.name} <span className="text-xs text-emerald-600 font-semibold">(You)</span></p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">
                           {player.handicap ? `HCP ${player.handicap}` : 'No handicap set'}
                           {hasFlightInfo(player) && ' • ✈️ Flight info added'}
                         </p>
                       </div>
                     </div>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-transform ${editingPlayerId === player.id ? 'rotate-90 bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-transform ${editingPlayerId === player.id ? 'rotate-90 bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400 dark:text-slate-500'}`}>
                       ▶
                     </div>
                   </button>
 
                   {editingPlayerId === player.id && (
-                    <div className="p-5 border-t border-slate-100 space-y-5 animate-slide-up">
+                    <div className="p-5 border-t border-slate-100 dark:border-slate-600 space-y-5 animate-slide-up">
                       {/* Profile Picture Upload */}
                       <div className="flex flex-col items-center">
-                        <p className="text-xs text-slate-500 font-medium mb-3">Profile Picture</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium mb-3">Profile Picture</p>
                         {avatarPreview ? (
                           <div className="relative">
                             <img src={avatarPreview} alt="Profile preview" className="w-24 h-24 rounded-2xl object-cover shadow-lg" />
@@ -1404,7 +1408,7 @@ export default function GolfTripPlanner() {
                         ) : (
                           <label className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-all">
                             <span className="text-2xl mb-1">📷</span>
-                            <span className="text-xs text-slate-500 font-medium">Add Photo</span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">Add Photo</span>
                             <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
                           </label>
                         )}
@@ -1413,11 +1417,11 @@ export default function GolfTripPlanner() {
                       {/* Basic Info */}
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="text-xs text-slate-500 font-medium block mb-1.5">Name</label>
+                          <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-1.5">Name</label>
                           <input type="text" value={profileForm.name} onChange={e => setProfileForm({ ...profileForm, name: e.target.value })} className="input" />
                         </div>
                         <div>
-                          <label className="text-xs text-slate-500 font-medium block mb-1.5">Handicap</label>
+                          <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-1.5">Handicap</label>
                           <input type="number" value={profileForm.handicap} onChange={e => setProfileForm({ ...profileForm, handicap: e.target.value })} placeholder="e.g. 12" className="input" />
                         </div>
                       </div>
@@ -1461,24 +1465,24 @@ export default function GolfTripPlanner() {
               {/* Other Players */}
               {players.filter(p => p.id !== currentUser.id).length > 0 && (
                 <div className="space-y-3">
-                  <p className="text-sm text-slate-500 font-medium px-1">Other Players</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium px-1">Other Players</p>
                   {players.filter(p => p.id !== currentUser.id).map(player => (
                     <div key={player.id} className="glass-card rounded-2xl p-4 flex items-center gap-4 interactive">
                       {player.avatarUrl ? (
                         <img src={player.avatarUrl} alt={player.name} className="w-12 h-12 rounded-xl object-cover" />
                       ) : (
-                        <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-600">
+                        <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-600 dark:text-slate-300">
                           {player.name.charAt(0)}
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-800 truncate">{player.name}</p>
-                        <p className="text-xs text-slate-400">
+                        <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{player.name}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">
                           {player.handicap ? `HCP ${player.handicap}` : 'No handicap'}
                           {hasFlightInfo(player) && ' • ✈️ Flight info'}
                         </p>
                       </div>
-                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${isProfileComplete(player) ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${isProfileComplete(player) ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500 dark:text-slate-400 dark:text-slate-500'}`}>
                         {isProfileComplete(player) ? '✓ Ready' : 'Pending'}
                       </div>
                     </div>
@@ -1493,12 +1497,12 @@ export default function GolfTripPlanner() {
           <div className="space-y-5 animate-fade-in">
             {/* Header */}
             <div className="glass-card p-5 rounded-2xl">
-              <h2 className="text-xl font-bold text-slate-800 tracking-tight">Flight Logistics</h2>
-              <p className="text-sm text-slate-500">Track arrivals and departures</p>
+              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">Flight Logistics</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">Track arrivals and departures</p>
             </div>
 
             {getFlightEvents().length === 0 ? (
-              <div className="glass-card p-12 rounded-2xl text-center text-slate-400">
+              <div className="glass-card p-12 rounded-2xl text-center text-slate-400 dark:text-slate-500">
                 <span className="text-4xl block mb-2 opacity-50">✈️</span>
                 <p className="font-medium">No flights logged yet</p>
               </div>
@@ -1507,7 +1511,7 @@ export default function GolfTripPlanner() {
                 {/* Arrivals Section */}
                 {getFlightEvents().filter(e => e.type === "arrival").length > 0 && (
                   <div className="space-y-3">
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 px-1 ml-1 flex items-center gap-2">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 ml-1 flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                       Arrivals
                     </h3>
@@ -1515,19 +1519,23 @@ export default function GolfTripPlanner() {
                       {getFlightEvents().filter(e => e.type === "arrival").map((e, i) => (
                         <div key={i} className="p-4 flex justify-between items-center hover:bg-slate-50/50 transition-colors">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-xs">
-                              {e.player.charAt(0)}
-                            </div>
+                            {e.avatarUrl ? (
+                              <img src={e.avatarUrl} alt={e.player} className="w-10 h-10 rounded-xl object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-black text-xs">
+                                {e.player.charAt(0)}
+                              </div>
+                            )}
                             <div className="min-w-0">
-                              <p className="font-bold text-slate-800 text-sm truncate">{e.player}</p>
-                              <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                              <p className="font-bold text-slate-800 dark:text-slate-100 text-sm truncate">{e.player}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
                                 <span className="text-emerald-500">✈️</span> {e.airport} {e.flight && `• ${e.flight}`}
                               </p>
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-[10px] font-black uppercase text-slate-400">{e.date}</p>
-                            <p className="font-bold text-slate-800 text-sm mt-0.5">{e.time || "TBD"}</p>
+                            <p className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500">{e.date}</p>
+                            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm mt-0.5">{e.time || "TBD"}</p>
                           </div>
                         </div>
                       ))}
@@ -1538,7 +1546,7 @@ export default function GolfTripPlanner() {
                 {/* Departures Section */}
                 {getFlightEvents().filter(e => e.type === "departure").length > 0 && (
                   <div className="space-y-3">
-                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 px-1 ml-1 flex items-center gap-2">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 ml-1 flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
                       Departures
                     </h3>
@@ -1546,19 +1554,23 @@ export default function GolfTripPlanner() {
                       {getFlightEvents().filter(e => e.type === "departure").map((e, i) => (
                         <div key={i} className="p-4 flex justify-between items-center hover:bg-slate-50/50 transition-colors">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-black text-xs">
-                              {e.player.charAt(0)}
-                            </div>
+                            {e.avatarUrl ? (
+                              <img src={e.avatarUrl} alt={e.player} className="w-10 h-10 rounded-xl object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-black text-xs">
+                                {e.player.charAt(0)}
+                              </div>
+                            )}
                             <div className="min-w-0">
-                              <p className="font-bold text-slate-800 text-sm truncate">{e.player}</p>
-                              <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                              <p className="font-bold text-slate-800 dark:text-slate-100 text-sm truncate">{e.player}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
                                 <span className="text-orange-500">🛫</span> {e.airport} {e.flight && `• ${e.flight}`}
                               </p>
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-[10px] font-black uppercase text-slate-400">{e.date}</p>
-                            <p className="font-bold text-slate-800 text-sm mt-0.5">{e.time || "TBD"}</p>
+                            <p className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500">{e.date}</p>
+                            <p className="font-bold text-slate-800 dark:text-slate-100 text-sm mt-0.5">{e.time || "TBD"}</p>
                           </div>
                         </div>
                       ))}
@@ -1575,8 +1587,8 @@ export default function GolfTripPlanner() {
             <div className="space-y-5 animate-fade-in">
               {/* Header */}
               <div className="glass-card p-5 rounded-2xl">
-                <h2 className="text-xl font-bold text-slate-800">Trip Schedule</h2>
-                <p className="text-sm text-slate-500">{itinerary.length} days of adventure</p>
+                <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Trip Schedule</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">{itinerary.length} days of adventure</p>
               </div>
 
               {itinerary.map((day, dayIndex) => {
@@ -1610,8 +1622,8 @@ export default function GolfTripPlanner() {
                           {section.items.length > 0 ? section.items.map(activity => (
                             <div key={activity.id} className={`flex items-start justify-between p-3 bg-${section.color}-50 rounded-xl mb-2`}>
                               <div className="flex-1">
-                                <p className="font-medium text-sm text-slate-800">{activity.title}</p>
-                                <p className="text-xs text-slate-500 mt-0.5">
+                                <p className="font-medium text-sm text-slate-800 dark:text-slate-100">{activity.title}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-0.5">
                                   {activity.time && <span className="mr-2">🕐 {activity.time}</span>}
                                   {activity.location && <span>📍 {activity.location}</span>}
                                 </p>
@@ -1619,7 +1631,7 @@ export default function GolfTripPlanner() {
                               <button onClick={() => removeActivity(activity.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-1">✕</button>
                             </div>
                           )) : (
-                            <p className="text-xs text-slate-400 italic py-1">No {section.label.toLowerCase()} planned</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500 italic py-1">No {section.label.toLowerCase()} planned</p>
                           )}
                         </div>
                       ))}
@@ -1627,14 +1639,14 @@ export default function GolfTripPlanner() {
                       {/* Other Activities */}
                       {other.length > 0 && (
                         <div className="border-l-4 border-slate-300 pl-4">
-                          <h5 className="font-semibold text-sm text-slate-600 mb-2 flex items-center gap-2">📌 Other</h5>
+                          <h5 className="font-semibold text-sm text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-2">📌 Other</h5>
                           {other.map(activity => (
-                            <div key={activity.id} className="flex items-start justify-between p-3 bg-slate-50 rounded-xl mb-2">
+                            <div key={activity.id} className="flex items-start justify-between p-3 bg-slate-50 dark:bg-slate-700 rounded-xl mb-2">
                               <div className="flex items-start gap-2 flex-1">
                                 <span>{activity.icon}</span>
                                 <div>
-                                  <p className="font-medium text-sm text-slate-800">{activity.title}</p>
-                                  <p className="text-xs text-slate-500 mt-0.5">
+                                  <p className="font-medium text-sm text-slate-800 dark:text-slate-100">{activity.title}</p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-0.5">
                                     {activity.time && <span className="mr-2">� {activity.time}</span>}
                                     {activity.location && <span>📍 {activity.location}</span>}
                                   </p>
@@ -1648,14 +1660,14 @@ export default function GolfTripPlanner() {
 
                       {/* Add Activity */}
                       {addingActivityDay === dayIndex ? (
-                        <div className="bg-slate-50 p-4 rounded-xl border-2 border-dashed border-emerald-300 mt-4">
-                          <p className="text-xs text-slate-500 mb-3">💡 Include "breakfast", "lunch", or "dinner" in titles to auto-categorize</p>
+                        <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-xl border-2 border-dashed border-emerald-300 mt-4">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mb-3">💡 Include "breakfast", "lunch", or "dinner" in titles to auto-categorize</p>
                           <div className="flex flex-wrap gap-2 mb-4">
                             {ACTIVITY_TYPES.map(t => (
                               <button
                                 key={t.type}
                                 onClick={() => setActivityForm({ ...activityForm, type: t.type })}
-                                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activityForm.type === t.type ? "bg-emerald-500 text-white" : "bg-white border border-slate-200 text-slate-600 hover:border-emerald-300"}`}
+                                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activityForm.type === t.type ? "bg-emerald-500 text-white" : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-emerald-300"}`}
                               >
                                 {t.icon} {t.label}
                               </button>
@@ -1680,7 +1692,7 @@ export default function GolfTripPlanner() {
                       ) : (
                         <button
                           onClick={() => startAddingActivity(dayIndex)}
-                          className="w-full py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-sm font-medium hover:border-emerald-400 hover:text-emerald-600 transition-colors"
+                          className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-xl text-slate-400 dark:text-slate-500 text-sm font-medium hover:border-emerald-400 hover:text-emerald-600 transition-colors"
                         >
                           + Add Activity
                         </button>
@@ -1698,8 +1710,8 @@ export default function GolfTripPlanner() {
           <div className="space-y-5 animate-fade-in">
             {/* Header */}
             <div className="glass-card p-5 rounded-2xl">
-              <h2 className="text-xl font-bold text-slate-800">Golf Courses</h2>
-              <p className="text-sm text-slate-500">Explore and track your scores • Tap for details</p>
+              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Golf Courses</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">Explore and track your scores • Tap for details</p>
             </div>
 
             {/* Course Detail View */}
@@ -1728,15 +1740,15 @@ export default function GolfTripPlanner() {
                       { label: "Rating", value: selectedCourse.rating },
                       { label: "Slope", value: selectedCourse.slope }
                     ].map(stat => (
-                      <div key={stat.label} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                        <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">{stat.label}</p>
-                        <p className="text-base font-bold text-slate-800 mt-1">{stat.value}</p>
+                      <div key={stat.label} className="bg-slate-50 dark:bg-slate-700 p-3 rounded-xl border border-slate-100 dark:border-slate-600">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">{stat.label}</p>
+                        <p className="text-base font-bold text-slate-800 dark:text-slate-100 mt-1">{stat.value}</p>
                       </div>
                     ))}
                   </div>
 
                   {/* Description */}
-                  <p className="text-slate-600 text-sm leading-relaxed">{selectedCourse.description}</p>
+                  <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">{selectedCourse.description}</p>
 
                   {/* Amenities */}
                   <div className="flex flex-wrap gap-2">
@@ -1748,9 +1760,9 @@ export default function GolfTripPlanner() {
                   </div>
 
                   {/* Green Fee & Website */}
-                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-700 rounded-2xl border border-slate-100 dark:border-slate-600">
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-1">Green Fee</p>
+                      <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold mb-1">Green Fee</p>
                       <p className="font-bold text-emerald-700 text-lg">{selectedCourse.greenFee}</p>
                     </div>
                     <a
@@ -1765,8 +1777,8 @@ export default function GolfTripPlanner() {
 
                   {/* Scheduled Play Dates */}
                   {selectedCourse.scheduledDates.length > 0 && (
-                    <div className="border-t border-slate-100 pt-5">
-                      <h4 className="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                    <div className="border-t border-slate-100 dark:border-slate-600 pt-5">
+                      <h4 className="font-bold text-sm text-slate-800 dark:text-slate-100 mb-3 flex items-center gap-2">
                         <span>📅</span> Scheduled Rounds
                       </h4>
                       <div className="flex flex-wrap gap-2">
@@ -1785,8 +1797,8 @@ export default function GolfTripPlanner() {
                   )}
 
                   {/* Scorecard Section */}
-                  <div className="border-t border-slate-100 pt-5">
-                    <h4 className="font-bold text-slate-800 flex items-center gap-2 mb-4">
+                  <div className="border-t border-slate-100 dark:border-slate-600 pt-5">
+                    <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-4">
                       <span>🏆</span> Scorecards
                     </h4>
 
@@ -1798,15 +1810,19 @@ export default function GolfTripPlanner() {
                           const isMe = player.id === currentUser?.id;
 
                           return (
-                            <div key={player.id} className={`p-4 rounded-xl transition-all border ${isMe ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
+                            <div key={player.id} className={`p-4 rounded-xl transition-all border ${isMe ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600'}`}>
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${isMe ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
-                                    {player.name.charAt(0)}
-                                  </div>
+                                  {player.avatarUrl ? (
+                                    <img src={player.avatarUrl} alt={player.name} className={`w-10 h-10 rounded-xl object-cover ${isMe ? 'ring-2 ring-emerald-400' : ''}`} />
+                                  ) : (
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${isMe ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-200 text-slate-600 dark:text-slate-300'}`}>
+                                      {player.name.charAt(0)}
+                                    </div>
+                                  )}
                                   <div>
-                                    <p className="font-bold text-sm text-slate-800">{player.name}{isMe && <span className="text-xs text-emerald-600 ml-1">(You)</span>}</p>
-                                    {player.handicap && <p className="text-xs text-slate-500 mt-0.5">HCP {player.handicap}</p>}
+                                    <p className="font-bold text-sm text-slate-800 dark:text-slate-100">{player.name}{isMe && <span className="text-xs text-emerald-600 ml-1">(You)</span>}</p>
+                                    {player.handicap && <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-0.5">HCP {player.handicap}</p>}
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -1816,18 +1832,18 @@ export default function GolfTripPlanner() {
                                       placeholder="Score"
                                       value={playerScore || ''}
                                       onChange={(e) => setScorecards({ ...scorecards, [scoreKey]: e.target.value })}
-                                      className="w-16 h-10 bg-white border border-slate-200 rounded-xl text-center font-bold text-lg text-slate-800 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all outline-none"
+                                      className="w-16 h-10 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl text-center font-bold text-lg text-slate-800 dark:text-slate-100 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all outline-none"
                                     />
                                   ) : (
-                                    <div className="w-16 h-10 bg-white border border-slate-100 rounded-xl flex items-center justify-center">
-                                      <span className="font-bold text-lg text-slate-400">{playerScore || '—'}</span>
+                                    <div className="w-16 h-10 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-600 rounded-xl flex items-center justify-center">
+                                      <span className="font-bold text-lg text-slate-400 dark:text-slate-500">{playerScore || '—'}</span>
                                     </div>
                                   )}
                                   {playerScore && (
                                     <span className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold ${parseInt(playerScore) < selectedCourse.par ? 'bg-rose-100 text-rose-600' :
                                       parseInt(playerScore) === selectedCourse.par ? 'bg-sky-100 text-sky-600' :
                                         parseInt(playerScore) <= selectedCourse.par + 10 ? 'bg-amber-100 text-amber-700' :
-                                          'bg-slate-100 text-slate-600'
+                                          'bg-slate-100 text-slate-600 dark:text-slate-300'
                                       }`}>
                                       {parseInt(playerScore) < selectedCourse.par ? `${parseInt(playerScore) - selectedCourse.par}` :
                                         parseInt(playerScore) === selectedCourse.par ? 'E' :
@@ -1841,7 +1857,7 @@ export default function GolfTripPlanner() {
                         })}
                       </div>
                     ) : (
-                      <p className="text-slate-400 text-sm text-center py-4">No players registered yet</p>
+                      <p className="text-slate-400 dark:text-slate-500 text-sm text-center py-4">No players registered yet</p>
                     )}
 
                     {/* Leaderboard Summary */}
@@ -1859,13 +1875,13 @@ export default function GolfTripPlanner() {
                               <div key={player.id} className="flex items-center justify-between text-sm">
                                 <span className="flex items-center gap-3">
                                   <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${idx === 0 ? 'bg-amber-400 text-white' :
-                                    idx === 1 ? 'bg-slate-300 text-slate-700' :
+                                    idx === 1 ? 'bg-slate-300 text-slate-700 dark:text-slate-200' :
                                       idx === 2 ? 'bg-orange-300 text-orange-800' :
-                                        'bg-slate-100 text-slate-600'
+                                        'bg-slate-100 text-slate-600 dark:text-slate-300'
                                     }`}>
                                     {idx + 1}
                                   </span>
-                                  <span className="font-semibold text-slate-700">{player.name}</span>
+                                  <span className="font-semibold text-slate-700 dark:text-slate-200">{player.name}</span>
                                 </span>
                                 <span className="font-black text-slate-900">{player.score}</span>
                               </div>
@@ -1884,7 +1900,7 @@ export default function GolfTripPlanner() {
                 <div
                   key={course.id}
                   onClick={() => setSelectedCourse(course)}
-                  className={`glass-card rounded-2xl overflow-hidden cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99] flex border ${selectedCourse?.id === course.id ? 'ring-2 ring-emerald-500 border-transparent shadow-emerald-500/10' : 'border-slate-100'
+                  className={`glass-card rounded-2xl overflow-hidden cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99] flex border ${selectedCourse?.id === course.id ? 'ring-2 ring-emerald-500 border-transparent shadow-emerald-500/10' : 'border-slate-100 dark:border-slate-600'
                     }`}
                 >
                   <div className="w-24 h-24 bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-4xl shrink-0">
@@ -1893,8 +1909,8 @@ export default function GolfTripPlanner() {
                   <div className="flex-1 p-4 flex flex-col justify-center min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <h3 className="font-bold text-slate-800 truncate">{course.name}</h3>
-                        <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                        <h3 className="font-bold text-slate-800 dark:text-slate-100 truncate">{course.name}</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
                           <span>📍</span> {course.location}
                         </p>
                       </div>
@@ -1902,10 +1918,10 @@ export default function GolfTripPlanner() {
                         {course.holes} Holes
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 mt-3 text-xs text-slate-400 font-medium">
-                      <span className="flex items-center gap-1">Par <span className="text-slate-600">{course.par}</span></span>
+                    <div className="flex items-center gap-3 mt-3 text-xs text-slate-400 dark:text-slate-500 font-medium">
+                      <span className="flex items-center gap-1">Par <span className="text-slate-600 dark:text-slate-300">{course.par}</span></span>
                       <span>•</span>
-                      <span className="flex items-center gap-1"><span className="text-slate-600">{course.yardage.toLocaleString()}</span> yds</span>
+                      <span className="flex items-center gap-1"><span className="text-slate-600 dark:text-slate-300">{course.yardage.toLocaleString()}</span> yds</span>
                     </div>
                   </div>
                 </div>
@@ -1918,7 +1934,7 @@ export default function GolfTripPlanner() {
               <p className="text-blue-100 text-sm mb-4">See when and where you're playing</p>
               <button
                 onClick={() => setCurrentView("schedule")}
-                className="w-full py-3 bg-white text-blue-600 rounded-xl font-bold hover:bg-blue-50 transition-colors"
+                className="w-full py-3 bg-white dark:bg-slate-800 text-blue-600 rounded-xl font-bold hover:bg-blue-50 transition-colors"
               >
                 Go to Schedule →
               </button>
@@ -1930,8 +1946,8 @@ export default function GolfTripPlanner() {
           <div className="space-y-5 animate-fade-in">
             {/* Header */}
             <div className="glass-card p-5 rounded-2xl">
-              <h2 className="text-xl font-bold text-slate-800">Trip Costs</h2>
-              <p className="text-sm text-slate-500">Track expenses and split fairly</p>
+              <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Trip Costs</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">Track expenses and split fairly</p>
             </div>
 
             {/* Summary Cards */}
@@ -1967,8 +1983,8 @@ export default function GolfTripPlanner() {
             ) : (
               <div className="glass-card p-5 rounded-2xl">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-bold text-lg text-gray-800">New Expense</h3>
-                  <button onClick={resetExpenseForm} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+                  <h3 className="font-bold text-lg text-gray-800 dark:text-gray-100">New Expense</h3>
+                  <button onClick={resetExpenseForm} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:text-gray-300 text-xl">&times;</button>
                 </div>
 
                 {/* Receipt Capture */}
@@ -1977,12 +1993,12 @@ export default function GolfTripPlanner() {
                     <div className="flex gap-3">
                       <label className="flex-1 flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-green-400 hover:bg-green-50 transition-all">
                         <span className="text-3xl mb-2">📷</span>
-                        <span className="text-sm text-gray-600 font-medium">Take Photo</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">Take Photo</span>
                         <input type="file" accept="image/*" capture="environment" onChange={handleImageCapture} className="hidden" />
                       </label>
                       <label className="flex-1 flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all">
                         <span className="text-3xl mb-2">📁</span>
-                        <span className="text-sm text-gray-600 font-medium">Upload</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">Upload</span>
                         <input type="file" accept="image/*" onChange={handleImageCapture} className="hidden" />
                       </label>
                     </div>
@@ -1999,7 +2015,7 @@ export default function GolfTripPlanner() {
 
                 {/* Category Selection */}
                 <div className="mb-4">
-                  <p className="text-sm text-gray-600 mb-2 font-medium">Category</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2 font-medium">Category</p>
                   <div className="flex flex-wrap gap-2">
                     {EXPENSE_CATEGORIES.map(cat => (
                       <button
@@ -2007,7 +2023,7 @@ export default function GolfTripPlanner() {
                         onClick={() => setExpenseForm({ ...expenseForm, category: cat.type })}
                         className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${expenseForm.category === cat.type
                           ? 'bg-green-600 text-white shadow-md'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : 'bg-gray-100 text-gray-700 dark:text-gray-200 hover:bg-gray-200'
                           }`}
                       >
                         {cat.icon} {cat.label}
@@ -2019,9 +2035,9 @@ export default function GolfTripPlanner() {
                 {/* Amount & Description */}
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <div>
-                    <label className="text-sm text-gray-600 font-medium">Amount</label>
+                    <label className="text-sm text-gray-600 dark:text-gray-300 font-medium">Amount</label>
                     <div className="relative mt-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500">$</span>
                       <input
                         type="number"
                         step="0.01"
@@ -2033,7 +2049,7 @@ export default function GolfTripPlanner() {
                     </div>
                   </div>
                   <div className="col-span-2">
-                    <label className="text-sm text-gray-600 font-medium">Description</label>
+                    <label className="text-sm text-gray-600 dark:text-gray-300 font-medium">Description</label>
                     <input
                       type="text"
                       value={expenseForm.description}
@@ -2046,7 +2062,7 @@ export default function GolfTripPlanner() {
 
                 {/* Paid By */}
                 <div className="mb-4">
-                  <label className="text-sm text-gray-600 font-medium">Paid by</label>
+                  <label className="text-sm text-gray-600 dark:text-gray-300 font-medium">Paid by</label>
                   <select
                     value={expenseForm.payerId}
                     onChange={e => setExpenseForm({ ...expenseForm, payerId: e.target.value })}
@@ -2062,7 +2078,7 @@ export default function GolfTripPlanner() {
                 {/* Split With */}
                 <div className="mb-4">
                   <div className="flex justify-between items-center mb-2">
-                    <label className="text-sm text-gray-600 font-medium">Split with</label>
+                    <label className="text-sm text-gray-600 dark:text-gray-300 font-medium">Split with</label>
                     <button
                       onClick={() => setExpenseForm({
                         ...expenseForm,
@@ -2088,7 +2104,7 @@ export default function GolfTripPlanner() {
                         }}
                         className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${expenseForm.splitWith.includes(player.id)
                           ? 'bg-blue-600 text-white shadow-md'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          : 'bg-gray-100 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
                           }`}
                       >
                         {player.name}{player.id === currentUser?.id ? ' (You)' : ''}
@@ -2096,7 +2112,7 @@ export default function GolfTripPlanner() {
                     ))}
                   </div>
                   {expenseForm.splitWith.length > 0 && expenseForm.amount && (
-                    <p className="text-xs text-gray-500 mt-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500 mt-2">
                       💡 Each person pays: <span className="font-semibold">${(parseFloat(expenseForm.amount) / expenseForm.splitWith.length).toFixed(2)}</span>
                     </p>
                   )}
@@ -2124,19 +2140,27 @@ export default function GolfTripPlanner() {
                 ) : (
                   <div className="space-y-2">
                     {calculateSettlements().map((s, i) => (
-                      <div key={i} className="flex items-center justify-between bg-white p-3 rounded-lg shadow-sm">
+                      <div key={i} className="flex items-center justify-between bg-white dark:bg-slate-800 p-3 rounded-lg shadow-sm">
                         <div className="flex items-center gap-2">
-                          <span className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-sm">
-                            {getPlayerName(s.from).charAt(0)}
-                          </span>
-                          <span className="text-gray-600">→</span>
-                          <span className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">
-                            {getPlayerName(s.to).charAt(0)}
-                          </span>
+                          {getPlayerAvatar(s.from) ? (
+                            <img src={getPlayerAvatar(s.from)} alt={getPlayerName(s.from)} className="w-8 h-8 rounded-full object-cover" />
+                          ) : (
+                            <span className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-sm">
+                              {getPlayerName(s.from).charAt(0)}
+                            </span>
+                          )}
+                          <span className="text-gray-600 dark:text-gray-300">→</span>
+                          {getPlayerAvatar(s.to) ? (
+                            <img src={getPlayerAvatar(s.to)} alt={getPlayerName(s.to)} className="w-8 h-8 rounded-full object-cover" />
+                          ) : (
+                            <span className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-sm">
+                              {getPlayerName(s.to).charAt(0)}
+                            </span>
+                          )}
                         </div>
                         <div className="text-right">
-                          <p className="text-sm text-gray-500">{getPlayerName(s.from)} pays {getPlayerName(s.to)}</p>
-                          <p className="text-lg font-bold text-gray-800">${s.amount.toFixed(2)}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">{getPlayerName(s.from)} pays {getPlayerName(s.to)}</p>
+                          <p className="text-lg font-bold text-gray-800 dark:text-gray-100">${s.amount.toFixed(2)}</p>
                         </div>
                       </div>
                     ))}
@@ -2146,19 +2170,19 @@ export default function GolfTripPlanner() {
             )}
 
             {/* Expense List */}
-            <div className="bg-white rounded-xl shadow overflow-hidden">
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow overflow-hidden">
               <div className="bg-gray-800 text-white p-4">
                 <h3 className="font-bold">Recent Expenses</h3>
               </div>
               {expenses.length === 0 ? (
-                <div className="p-8 text-center text-gray-400">
+                <div className="p-8 text-center text-gray-400 dark:text-gray-500">
                   <span className="text-4xl block mb-2">🧾</span>
                   <p>No expenses yet. Add your first receipt!</p>
                 </div>
               ) : (
                 <div className="divide-y">
                   {expenses.map(expense => (
-                    <div key={expense.id} className="p-4 hover:bg-gray-50 transition-colors">
+                    <div key={expense.id} className="p-4 hover:bg-gray-50 dark:bg-gray-700 transition-colors">
                       <div className="flex gap-3">
                         {expense.receiptUrl ? (
                           <img
@@ -2174,26 +2198,36 @@ export default function GolfTripPlanner() {
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-start">
                             <div>
-                              <p className="font-semibold text-gray-800 truncate">{expense.description}</p>
-                              <p className="text-xs text-gray-500">
+                              <p className="font-semibold text-gray-800 dark:text-gray-100 truncate">{expense.description}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">
                                 Paid by {getPlayerName(expense.payerId)} • Split {expense.splits.length} way{expense.splits.length !== 1 ? 's' : ''}
                               </p>
                             </div>
-                            <p className="text-lg font-bold text-gray-800">${expense.amount.toFixed(2)}</p>
+                            <p className="text-lg font-bold text-gray-800 dark:text-gray-100">${expense.amount.toFixed(2)}</p>
                           </div>
                           <div className="flex items-center justify-between mt-2">
                             <div className="flex -space-x-2">
                               {expense.splits.slice(0, 4).map(split => (
-                                <span
-                                  key={split.playerId}
-                                  className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold border-2 border-white"
-                                  title={getPlayerName(split.playerId)}
-                                >
-                                  {getPlayerName(split.playerId).charAt(0)}
-                                </span>
+                                getPlayerAvatar(split.playerId) ? (
+                                  <img
+                                    key={split.playerId}
+                                    src={getPlayerAvatar(split.playerId)}
+                                    alt={getPlayerName(split.playerId)}
+                                    className="w-6 h-6 rounded-full object-cover border-2 border-white"
+                                    title={getPlayerName(split.playerId)}
+                                  />
+                                ) : (
+                                  <span
+                                    key={split.playerId}
+                                    className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold border-2 border-white"
+                                    title={getPlayerName(split.playerId)}
+                                  >
+                                    {getPlayerName(split.playerId).charAt(0)}
+                                  </span>
+                                )
                               ))}
                               {expense.splits.length > 4 && (
-                                <span className="w-6 h-6 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-bold border-2 border-white">
+                                <span className="w-6 h-6 rounded-full bg-gray-200 text-gray-600 dark:text-gray-300 flex items-center justify-center text-xs font-bold border-2 border-white">
                                   +{expense.splits.length - 4}
                                 </span>
                               )}
@@ -2220,7 +2254,7 @@ export default function GolfTripPlanner() {
 
       {/* Fixed Save Bar - Shows when editing profile */}
       {editingPlayerId && (
-        <div className="fixed bottom-20 left-0 right-0 z-[60] bg-white border-t-2 border-emerald-400 px-4 py-4 shadow-lg">
+        <div className="fixed bottom-20 left-0 right-0 z-[60] bg-white dark:bg-slate-800 border-t-2 border-emerald-400 px-4 py-4 shadow-lg">
           <div className="max-w-4xl mx-auto flex gap-3">
             <button onClick={saveProfile} className="btn-primary flex-1 py-4 text-lg font-bold">💾 Save Profile</button>
             <button onClick={cancelEditProfile} className="btn-secondary px-6 py-4">Cancel</button>
@@ -2229,7 +2263,7 @@ export default function GolfTripPlanner() {
       )}
 
       {/* Bottom Navigation - Mobile First */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-slate-200/50 safe-bottom">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-slate-200 dark:border-slate-600/50 safe-bottom">
         <div className="max-w-4xl mx-auto px-2">
           <div className="flex justify-around items-center py-2">
             {navItems.map(item => {
@@ -2240,13 +2274,13 @@ export default function GolfTripPlanner() {
                   onClick={() => setCurrentView(item.key)}
                   className={`flex flex-col items-center justify-center py-2 px-3 rounded-xl transition-all duration-200 tap-target ${isActive
                     ? 'bg-emerald-50 text-emerald-600'
-                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+                    : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:text-slate-300 hover:bg-slate-50'
                     }`}
                 >
                   <span className={`text-xl mb-0.5 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`}>
                     {item.icon}
                   </span>
-                  <span className={`text-[10px] font-semibold ${isActive ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  <span className={`text-[10px] font-semibold ${isActive ? 'text-emerald-600' : 'text-slate-400 dark:text-slate-500'}`}>
                     {item.label}
                   </span>
                   {isActive && (

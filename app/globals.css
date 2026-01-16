@@ -80,8 +80,8 @@ html {
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg-base);
-  color: var(--text-primary);
+  background: #f8fafc !important;
+  color: #0f172a !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -92,13 +92,13 @@ body {
 
 /* Flat Card Style - Clean, no blur */
 .glass {
-  background: var(--bg-elevated);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .glass-card {
-  background: var(--bg-elevated);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: var(--shadow-sm);
 }
 
@@ -373,9 +373,10 @@ textarea::placeholder {
 }
 
 /* ============================================
-   DARK MODE MEDIA QUERY (Auto)
+   DARK MODE DISABLED - App is light-only for clarity
    ============================================ */
 
+/* Dark mode auto-switching disabled for consistent readability
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     --bg-base: #0f172a;
@@ -387,3 +388,4 @@ textarea::placeholder {
     --text-muted: #64748b;
   }
 }
+*/

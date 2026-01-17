@@ -1496,15 +1496,33 @@ export default function GolfTripPlanner() {
                         )}
                       </div>
 
-                      {/* Score Cards (Right) */}
+                      {/* Score Cards (Right) - Tappable to Edit */}
                       <div className="flex gap-2">
-                        <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-600">
+                        <div
+                          className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-600 cursor-pointer hover:border-emerald-400 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newScore = prompt("Enter Round 1 Score:", p.r1 || "");
+                            if (newScore !== null) {
+                              supabase.from('players').update({ r1: parseInt(newScore) || 0 }).eq('id', p.id).then(() => loadPlayers());
+                            }
+                          }}
+                        >
                           <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">R1</span>
                           <span className={`text-sm font-bold ${p.r1 > 0 ? 'text-slate-800 dark:text-white' : 'text-slate-300'}`}>
                             {p.r1 || "-"}
                           </span>
                         </div>
-                        <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-600">
+                        <div
+                          className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-600 cursor-pointer hover:border-emerald-400 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const newScore = prompt("Enter Round 2 Score:", p.r2 || "");
+                            if (newScore !== null) {
+                              supabase.from('players').update({ r2: parseInt(newScore) || 0 }).eq('id', p.id).then(() => loadPlayers());
+                            }
+                          }}
+                        >
                           <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">R2</span>
                           <span className={`text-sm font-bold ${p.r2 > 0 ? 'text-slate-800 dark:text-white' : 'text-slate-300'}`}>
                             {p.r2 || "-"}

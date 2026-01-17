@@ -1753,6 +1753,35 @@ export default function GolfTripPlanner() {
                         </div>
                       </div>
 
+                      {/* Golf Scores */}
+                      <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800">
+                        <h4 className="font-semibold text-sm text-emerald-700 mb-3 flex items-center gap-2">
+                          <span>⛳</span> Round Scores
+                        </h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1.5">Round 1</label>
+                            <input
+                              type="number"
+                              value={profileForm.r1}
+                              onChange={e => setProfileForm({ ...profileForm, r1: e.target.value })}
+                              placeholder="e.g. 85"
+                              className="input text-center font-mono text-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1.5">Round 2</label>
+                            <input
+                              type="number"
+                              value={profileForm.r2}
+                              onChange={e => setProfileForm({ ...profileForm, r2: e.target.value })}
+                              placeholder="e.g. 82"
+                              className="input text-center font-mono text-lg"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
                       {/* Host Toggle */}
                       <div className="flex items-center justify-between p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800">
                         <div className="flex items-center gap-3">

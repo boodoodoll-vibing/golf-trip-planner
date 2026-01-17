@@ -1,15 +1,19 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'Golf Trip Planner',
+  title: 'TSG - Coolie Lime',
   description: 'Plan your golf trip with friends - track flights, costs, and scores',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/icons/icon-192.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Golf Trip',
+    title: 'TSG',
   },
-  themeColor: '#059669',
+  themeColor: '#C8102E',
   viewport: {
     width: 'device-width',
     initialScale: 1,
@@ -25,12 +29,13 @@ export default function RootLayout({ children }) {
       <head>
         {/* PWA Meta Tags */}
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#059669" />
+        <link rel="icon" href="/favicon.ico" sizes="32x32" />
+        <meta name="theme-color" content="#C8102E" />
 
         {/* Apple PWA Meta Tags */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Golf Trip" />
+        <meta name="apple-mobile-web-app-title" content="TSG" />
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
         {/* Splash screens for iOS */}

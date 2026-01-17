@@ -1,11 +1,11 @@
 {
-    "name": "Golf Trip Planner",
-    "short_name": "Golf Trip",
+    "name": "TSG - Coolie Lime",
+    "short_name": "TSG",
     "description": "Plan your golf trip with friends - track flights, costs, and scores",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#f8fafc",
-    "theme_color": "#059669",
+    "background_color": "#1a1a1a",
+    "theme_color": "#C8102E",
     "orientation": "portrait-primary",
     "icons": [
         {

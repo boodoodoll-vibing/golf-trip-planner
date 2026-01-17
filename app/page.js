@@ -555,6 +555,8 @@ export default function GolfTripPlanner() {
   };
 
   const saveProfile = async () => {
+    console.log('saveProfile called!', { avatarFile, editingPlayerId, profileForm });
+
     let avatarUrl = profileForm.avatarUrl;
 
     // Upload new avatar if selected
@@ -566,14 +568,16 @@ export default function GolfTripPlanner() {
 
       if (uploadError) {
         console.error('Avatar upload error:', uploadError);
+        alert('Failed to upload photo: ' + uploadError.message);
       }
       if (!uploadError && uploadData) {
         const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(fileName);
         avatarUrl = urlData?.publicUrl;
+        console.log('Avatar uploaded successfully:', avatarUrl);
       }
     }
 
-    await supabase.from('players').update({
+    const { error: updateError } = await supabase.from('players').update({
       name: profileForm.name, handicap: profileForm.handicap || null,
       avatar_url: avatarUrl || null,
       arrival_date: profileForm.arrivalDate || null, arrival_time: profileForm.arrivalTime || null,
@@ -581,6 +585,13 @@ export default function GolfTripPlanner() {
       departure_date: profileForm.departureDate || null, departure_time: profileForm.departureTime || null,
       departure_airport: profileForm.departureAirport || null, departure_flight: profileForm.departureFlight || null,
     }).eq('id', editingPlayerId);
+
+    if (updateError) {
+      console.error('Profile update error:', updateError);
+      alert('Failed to save profile: ' + updateError.message);
+      return;
+    }
+
     setEditingPlayerId(null);
     setAvatarPreview(null);
     setAvatarFile(null);
@@ -596,6 +607,7 @@ export default function GolfTripPlanner() {
   // Handle profile picture selection
   const handleAvatarChange = (e) => {
     const file = e.target.files?.[0];
+    console.log('handleAvatarChange called!', file);
     if (file) {
       setAvatarFile(file);
       const reader = new FileReader();
@@ -2256,7 +2268,7 @@ export default function GolfTripPlanner() {
       {editingPlayerId && (
         <div className="fixed bottom-20 left-0 right-0 z-[60] bg-white dark:bg-slate-800 border-t-2 border-emerald-400 px-4 py-4 shadow-lg">
           <div className="max-w-4xl mx-auto flex gap-3">
-            <button onClick={saveProfile} className="btn-primary flex-1 py-4 text-lg font-bold">💾 Save Profile</button>
+            <button onClick={() => { alert('Save button clicked!'); saveProfile(); }} className="btn-primary flex-1 py-4 text-lg font-bold">💾 Save Profile</button>
             <button onClick={cancelEditProfile} className="btn-secondary px-6 py-4">Cancel</button>
           </div>
         </div>

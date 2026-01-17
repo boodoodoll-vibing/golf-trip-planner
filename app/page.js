@@ -118,6 +118,7 @@ export default function GolfTripPlanner() {
   const [editingTrip, setEditingTrip] = useState(false);
   const [activities, setActivities] = useState([]);
 
+  const [expandedDay, setExpandedDay] = useState(() => new Date().toISOString().split('T')[0]);
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ name: "", phone: "", pin: "" });
   const [authError, setAuthError] = useState("");
@@ -156,6 +157,15 @@ export default function GolfTripPlanner() {
   const [receiptFile, setReceiptFile] = useState(null);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [expenseUploading, setExpenseUploading] = useState(false);
+
+  // Settlement recording state
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
+  const [settlementForm, setSettlementForm] = useState({
+    fromId: "",
+    toId: "",
+    amount: "",
+    method: "cash",
+  });
 
   // Golf Courses state
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -356,6 +366,10 @@ export default function GolfTripPlanner() {
         arrivalAirport: p.arrival_airport || "", arrivalFlight: p.arrival_flight || "",
         departureDate: p.departure_date || "", departureTime: p.departure_time || "",
         departureAirport: p.departure_airport || "", departureFlight: p.departure_flight || "",
+        isAdmin: p.is_admin || false,
+        isHost: p.is_host || false,
+        r1: p.r1 || 0,
+        r2: p.r2 || 0,
       }));
       setPlayers(mapped);
       if (currentUser) {
@@ -368,7 +382,19 @@ export default function GolfTripPlanner() {
   const loadTrip = async () => {
     const { data, error } = await supabase.from('trip').select('*').limit(1).single();
     if (!error && data) {
-      const t = { id: data.id, name: data.name, destination: data.destination, startDate: data.start_date, endDate: data.end_date };
+      const t = {
+        id: data.id,
+        name: data.name,
+        destination: data.destination,
+        startDate: data.start_date,
+        endDate: data.end_date,
+        // House Intel fields
+        wifiName: data.wifi_name,
+        wifiPass: data.wifi_pass,
+        houseAddress: data.house_address,
+        gateCode: data.gate_code,
+        doorCode: data.door_code,
+      };
       setTrip(t);
       setTripForm(t);
     }
@@ -440,6 +466,204 @@ export default function GolfTripPlanner() {
     } finally {
       setFlightStatusLoading(prev => ({ ...prev, [flightNumber]: false }));
     }
+  };
+
+  // UI HELPER FUNCTIONS FOR REDESIGN
+
+  const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+
+  useEffect(() => {
+    if (!trip.startDate) return;
+    // Parse startDate (YYYY-MM-DD) to local midnight or specific time?
+    // Usually startDate is just date string. Let's assume midnight local for now
+    // or append T00:00:00 to be safe.
+    const target = new Date(trip.startDate + "T00:00:00").getTime();
+
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const distance = target - now;
+
+      if (distance < 0) {
+        setCountdown({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+      } else {
+        setCountdown({
+          days: Math.floor(distance / (1000 * 60 * 60 * 24)),
+          hours: Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+          minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
+          seconds: Math.floor((distance % (1000 * 60)) / 1000)
+        });
+      }
+    };
+
+    updateTimer(); // Value on mount
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [trip.startDate]);
+
+  // Sorting: Leaderboard vs Arrivals
+  const getSortedSquad = () => {
+    return [...players].sort((a, b) => {
+      // 1. Calculate Totals (treat null/undefined as 0)
+      const scoreA = (parseInt(a.r1) || 0) + (parseInt(a.r2) || 0);
+      const scoreB = (parseInt(b.r1) || 0) + (parseInt(b.r2) || 0);
+
+      // 2. If valid scores exist (total > 0), prioritize Leaderboard
+      // Note: In golf, lower is better. BUT unplayed (0) should be at bottom?
+      // Let's assume unplayed = 0.
+      // If A has score and B doesn't (0), A comes first.
+      // If both have score > 0, lower comes first.
+
+      if (scoreA > 0 && scoreB === 0) return -1;
+      if (scoreB > 0 && scoreA === 0) return 1;
+
+      if (scoreA > 0 && scoreB > 0) {
+        return scoreA - scoreB; // Ascending (Lower is better)
+      }
+
+      // 3. Fallback to Arrival Sorting (if no scores yet)
+      if (!a.arrivalDate && b.arrivalDate) return 1;
+      if (a.arrivalDate && !b.arrivalDate) return -1;
+
+      if (a.arrivalDate && b.arrivalDate) {
+        const dateComparison = a.arrivalDate.localeCompare(b.arrivalDate);
+        if (dateComparison !== 0) return dateComparison;
+        return (a.arrivalTime || "23:59").localeCompare(b.arrivalTime || "23:59");
+      }
+
+      // 4. Name Fallback
+      return a.name.localeCompare(b.name);
+    });
+  };
+
+  const getSortedDepartures = () => {
+    return [...players].sort((a, b) => {
+      if (!a.departureDate && b.departureDate) return 1;
+      if (a.departureDate && !b.departureDate) return -1;
+      if (a.departureDate && b.departureDate) {
+        const dateComparison = a.departureDate.localeCompare(b.departureDate);
+        if (dateComparison !== 0) return dateComparison;
+        return (a.departureTime || "").localeCompare(b.departureTime || "");
+      }
+      return a.name.localeCompare(b.name);
+    });
+  };
+
+  const [showDepartures, setShowDepartures] = useState(false);
+  const [showAddPlayer, setShowAddPlayer] = useState(false);
+  const [newPlayerForm, setNewPlayerForm] = useState({ name: '', phone: '' });
+
+  const handleAddPlayer = async () => {
+    if (!newPlayerForm.name || !newPlayerForm.phone) return;
+    const phone = normalizePhone(newPlayerForm.phone);
+    // Hardcoded pin for "invite" flow? Or just create placeholder?
+    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+
+    // Check if user already exists?
+    // For now just insert, Supabase constraint might fail if phone unique
+
+    const { error } = await supabase.from('players').insert({
+      name: newPlayerForm.name,
+      phone: phone,
+      pin: pin,
+      trip_id: trip.id
+    });
+
+    if (!error) {
+      setShowAddPlayer(false);
+      setNewPlayerForm({ name: '', phone: '' });
+      window.location.reload();
+    } else {
+      alert("Error adding player: " + error.message);
+    }
+  };
+
+  const getDaysUntilTrip = () => {
+    if (!trip.startDate) return 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(trip.startDate + "T00:00:00");
+    const diff = Math.ceil((start - today) / (1000 * 60 * 60 * 24));
+    return diff;
+  };
+
+  const getTripPhase = () => {
+    // Keep existing logic if needed for other checks, but we are using countdown now.
+    // Re-implementing simplified for other parts of app that use it
+    const days = getDaysUntilTrip();
+    if (days > 1) return 'BEFORE';
+    if (days >= -1) return 'ARRIVING';
+    return 'ACTIVE';
+  };
+
+  const getHouseInfo = () => ({
+    wifiName: trip.wifiName || process.env.NEXT_PUBLIC_WIFI_NAME || "Clubhouse_Guest",
+    wifiPass: trip.wifiPass || process.env.NEXT_PUBLIC_WIFI_PASS || "birdie123",
+    address: trip.houseAddress || process.env.NEXT_PUBLIC_HOUSE_ADDRESS || "123 Fairway Dr, Houston, TX",
+    gateCode: trip.gateCode || process.env.NEXT_PUBLIC_GATE_CODE || "#1234",
+    doorCode: trip.doorCode || process.env.NEXT_PUBLIC_DOOR_CODE || "1234"
+  });
+
+  const getNextUpEvent = () => {
+    const now = new Date();
+
+    // Priority 1: Pending Arrivals (someone landing today/tomorrow who hasn't landed)
+    const pendingArrivals = players
+      .filter(p => p.name && p.arrivalDate && p.arrivalFlight)
+      .map(p => {
+        const date = new Date(p.arrivalDate + "T" + (p.arrivalTime || "12:00"));
+        const status = getFlightStatus(p.arrivalFlight);
+        return {
+          type: 'arrival',
+          player: p,
+          date,
+          status,
+          sortTime: date.getTime()
+        };
+      })
+      .filter(e => {
+        // Filter out if already landed (simplified check)
+        return e.status?.status !== 'landed' && e.date.getTime() > now.getTime() - (4 * 60 * 60 * 1000); // 4h buffer
+      })
+      .sort((a, b) => a.sortTime - b.sortTime);
+
+    if (pendingArrivals.length > 0) return pendingArrivals[0];
+
+    // Priority 2: Upcoming Activities
+    const upcomingActivities = activities
+      .map(a => {
+        const date = new Date(a.dayDate + "T" + (a.time || "00:00"));
+        return {
+          type: 'activity',
+          activity: a,
+          date,
+          sortTime: date.getTime()
+        };
+      })
+      .filter(e => e.date.getTime() > now.getTime())
+      .sort((a, b) => a.sortTime - b.sortTime);
+
+    if (upcomingActivities.length > 0) return upcomingActivities[0];
+
+    return null;
+  };
+
+  const getArrivalsByDate = () => {
+    const groups = {};
+    players.forEach(p => {
+      // Include locals or no-flight people? Maybe separately.
+      if (!p.name) return;
+
+      const dateKey = p.arrivalDate || "Locals";
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(p);
+    });
+
+    // Sort dates
+    return Object.entries(groups).sort((a, b) => {
+      if (a[0] === 'Locals') return 1;
+      if (b[0] === 'Locals') return -1;
+      return a[0].localeCompare(b[0]);
+    });
   };
 
   // Fetch flight statuses when players change
@@ -518,7 +742,17 @@ export default function GolfTripPlanner() {
       return;
     }
 
-    setCurrentUser({ id: data.id, phone: data.phone, pin: data.pin, name: data.name, handicap: "", arrivalDate: "", arrivalTime: "", arrivalAirport: "", arrivalFlight: "", departureDate: "", departureTime: "", departureAirport: "", departureFlight: "" });
+    setCurrentUser({
+      id: data.id,
+      phone: data.phone,
+      pin: data.pin,
+      name: data.name,
+      handicap: "",
+      r1: 0, r2: 0, // Init scores
+      arrivalDate: "", arrivalTime: "", arrivalAirport: "", arrivalFlight: "",
+      departureDate: "", departureTime: "", departureAirport: "", departureFlight: "",
+      isAdmin: false
+    });
     setAuthForm({ name: "", phone: "", pin: "" });
     await loadPlayers();
   };
@@ -543,7 +777,12 @@ export default function GolfTripPlanner() {
 
   const startEditingProfile = (player) => {
     setProfileForm({
-      name: player.name || "", handicap: player.handicap || "", avatarUrl: player.avatarUrl || "",
+      name: player.name || "",
+      handicap: player.handicap || "",
+      avatarUrl: player.avatarUrl || "",
+      r1: player.r1 || "", // Bind R1
+      r2: player.r2 || "", // Bind R2
+      isHost: player.isHost || false, // Bind Host status
       arrivalDate: player.arrivalDate || "", arrivalTime: player.arrivalTime || "",
       arrivalAirport: player.arrivalAirport || "", arrivalFlight: player.arrivalFlight || "",
       departureDate: player.departureDate || "", departureTime: player.departureTime || "",
@@ -561,7 +800,11 @@ export default function GolfTripPlanner() {
     let avatarUrl = avatarPreview || profileForm.avatarUrl;
 
     const { error: updateError } = await supabase.from('players').update({
-      name: profileForm.name, handicap: profileForm.handicap || null,
+      name: profileForm.name,
+      handicap: profileForm.handicap || null,
+      r1: parseInt(profileForm.r1) || 0, // Save R1
+      r2: parseInt(profileForm.r2) || 0, // Save R2
+      is_host: profileForm.isHost || false, // Save Host status
       avatar_url: avatarUrl || null,
       arrival_date: profileForm.arrivalDate || null, arrival_time: profileForm.arrivalTime || null,
       arrival_airport: profileForm.arrivalAirport || null, arrival_flight: profileForm.arrivalFlight || null,
@@ -748,6 +991,105 @@ export default function GolfTripPlanner() {
   const deleteExpense = async (expenseId) => {
     await supabase.from('expenses').delete().eq('id', expenseId);
     await loadExpenses();
+  };
+
+  // Record a settlement (debt payment)
+  const recordSettlement = async () => {
+    if (!settlementForm.fromId || !settlementForm.toId || !settlementForm.amount) return;
+
+    // For now, create a "negative" expense to balance the books
+    // This is a simple approach - the payer "pays back" with a credit
+    const { error } = await supabase.from('expenses').insert({
+      payer_id: settlementForm.fromId,
+      description: `Settlement payment to ${getPlayerName(settlementForm.toId)}`,
+      amount: parseFloat(settlementForm.amount),
+      category: 'settlement',
+    });
+
+    if (!error) {
+      // Create split where only the creditor is credited
+      const { data: expData } = await supabase
+        .from('expenses')
+        .select('id')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (expData) {
+        await supabase.from('expense_splits').insert([
+          { expense_id: expData.id, player_id: settlementForm.toId, amount: parseFloat(settlementForm.amount) },
+        ]);
+      }
+
+      setShowSettlementModal(false);
+      setSettlementForm({ fromId: "", toId: "", amount: "", method: "cash" });
+      await loadExpenses();
+    }
+  };
+
+  // Start settlement from a suggested payment
+  const startSettlement = (from, to, amount) => {
+    setSettlementForm({
+      fromId: from,
+      toId: to,
+      amount: amount.toFixed(2),
+      method: "cash",
+    });
+    setShowSettlementModal(true);
+  };
+
+  // Quick expense suggestions for golf trips
+  const QUICK_EXPENSES = [
+    { icon: "⛳", label: "Green Fees", category: "golf" },
+    { icon: "🍽️", label: "Dinner", category: "food" },
+    { icon: "🍺", label: "Drinks", category: "food" },
+    { icon: "🚗", label: "Uber/Lyft", category: "transport" },
+    { icon: "🏨", label: "Hotel", category: "lodging" },
+    { icon: "⛽", label: "Gas", category: "transport" },
+  ];
+
+  // Calculate per-person balances
+  const calculateBalances = () => {
+    const balances = {};
+    players.forEach(p => { balances[p.id] = { paid: 0, owes: 0 }; });
+
+    expenses.forEach(expense => {
+      if (expense.category === 'settlement') return; // Skip settlement entries
+      if (balances[expense.payerId]) {
+        balances[expense.payerId].paid += expense.amount;
+      }
+      expense.splits.forEach(split => {
+        if (balances[split.playerId]) {
+          balances[split.playerId].owes += split.amount;
+        }
+      });
+    });
+
+    return Object.entries(balances).map(([id, bal]) => ({
+      id,
+      paid: bal.paid,
+      owes: bal.owes,
+      net: bal.paid - bal.owes, // positive = owed money, negative = owes money
+    }));
+  };
+
+  // Get current user's balance status
+  const getMyBalance = () => {
+    const balances = calculateBalances();
+    const myBal = balances.find(b => b.id === currentUser?.id);
+    return myBal || { paid: 0, owes: 0, net: 0 };
+  };
+
+  // Calculate expense totals by category
+  const getCategoryTotals = () => {
+    const totals = {};
+    expenses.forEach(exp => {
+      if (exp.category === 'settlement') return;
+      totals[exp.category] = (totals[exp.category] || 0) + exp.amount;
+    });
+    return Object.entries(totals)
+      .map(([cat, total]) => ({ category: cat, total }))
+      .sort((a, b) => b.total - a.total);
   };
 
   // Calculate settlements - who owes whom
@@ -1022,309 +1364,299 @@ export default function GolfTripPlanner() {
         }}
       >
         {currentView === "dashboard" && (
-          <div className="space-y-5 animate-fade-in">
-            {/* Hero Trip Card */}
-            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 p-6 text-white shadow-xl shadow-emerald-500/20">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-              <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/2"></div>
+          <div className="space-y-6 animate-fade-in pb-20">
 
-              <div className="relative z-10">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-emerald-100 text-xs font-semibold uppercase tracking-wider mb-1">Your Trip</p>
-                    <h2 className="text-2xl font-bold mb-3">{trip.name}</h2>
-                    <div className="flex flex-col gap-1 text-sm">
-                      <p className="flex items-center gap-2">
-                        <span className="opacity-80">📍</span> {trip.destination}
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <span className="opacity-80">📅</span>
-                        {new Date(trip.startDate + "T00:00:00").toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(trip.endDate + "T00:00:00").toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={startEditingTrip}
-                    className="p-2 bg-white/20 hover:bg-white/30 rounded-xl transition-colors"
-                  >
-                    <span className="text-lg">✏️</span>
-                  </button>
+            {/* 1. HERO: TICKING CLOCK */}
+            <div className="relative overflow-hidden rounded-3xl bg-slate-900 text-white p-8 shadow-2xl shadow-emerald-900/20 text-center">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+              <div className="absolute bottom-0 left-0 w-32 h-32 bg-teal-500/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2"></div>
+
+              <p className="text-emerald-400 text-xs font-bold tracking-[0.2em] uppercase mb-4">Time to Tee Off</p>
+
+              <div className="flex justify-center gap-2 sm:gap-4 font-mono">
+                <div className="flex flex-col items-center">
+                  <span className="text-4xl sm:text-5xl font-bold leading-none">{String(countdown.days).padStart(2, '0')}</span>
+                  <span className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider">Days</span>
                 </div>
+                <span className="text-2xl sm:text-3xl text-slate-700 font-bold mt-2">:</span>
+                <div className="flex flex-col items-center">
+                  <span className="text-4xl sm:text-5xl font-bold leading-none">{String(countdown.hours).padStart(2, '0')}</span>
+                  <span className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider">Hrs</span>
+                </div>
+                <span className="text-2xl sm:text-3xl text-slate-700 font-bold mt-2">:</span>
+                <div className="flex flex-col items-center">
+                  <span className="text-4xl sm:text-5xl font-bold leading-none">{String(countdown.minutes).padStart(2, '0')}</span>
+                  <span className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider">Min</span>
+                </div>
+                <span className="text-2xl sm:text-3xl text-slate-700 font-bold mt-2">:</span>
+                <div className="flex flex-col items-center">
+                  <span className="text-4xl sm:text-5xl font-bold leading-none text-emerald-400">{String(countdown.seconds).padStart(2, '0')}</span>
+                  <span className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider">Sec</span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-center gap-3">
+                <button
+                  onClick={() => document.getElementById('house_intel_modal').showModal()}
+                  className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-full text-xs font-bold backdrop-blur-md transition-colors flex items-center gap-2 border border-white/5"
+                >
+                  🏠 House Intel
+                </button>
+                <button
+                  onClick={() => setCurrentView("schedule")}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-full text-xs font-bold shadow-lg shadow-emerald-900/20 transition-colors flex items-center gap-2"
+                >
+                  📅 Schedule
+                </button>
               </div>
             </div>
 
-            {/* Edit Trip Modal */}
-            {editingTrip && (
-              <div className="glass-card p-5 rounded-2xl animate-scale-in border-2 border-emerald-400">
-                <h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Edit Trip Details</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">Trip Name</label>
-                    <input type="text" value={tripForm.name} onChange={e => setTripForm({ ...tripForm, name: e.target.value })} className="input mt-1" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">Destination</label>
-                    <input type="text" value={tripForm.destination} onChange={e => setTripForm({ ...tripForm, destination: e.target.value })} className="input mt-1" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">Start Date</label>
-                      <input type="date" value={tripForm.startDate} onChange={e => setTripForm({ ...tripForm, startDate: e.target.value })} className="input mt-1" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium">End Date</label>
-                      <input type="date" value={tripForm.endDate} onChange={e => setTripForm({ ...tripForm, endDate: e.target.value })} className="input mt-1" />
-                    </div>
-                  </div>
-                  <div className="flex gap-3 pt-2">
-                    <button onClick={saveTrip} className="btn-primary flex-1">Save Changes</button>
-                    <button onClick={() => setEditingTrip(false)} className="btn-secondary px-6">Cancel</button>
-                  </div>
-                </div>
+            {/* 2. THE SQUAD LIST (Leaderboard Mode) */}
+            <div>
+              <div className="flex items-center justify-between px-2 mb-3">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  Squad Leaderboard
+                </h3>
+                <button
+                  onClick={() => setShowAddPlayer(true)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 flex items-center justify-center font-bold text-lg transition-colors"
+                >
+                  +
+                </button>
               </div>
-            )}
 
-            {/* Quick Stats */}
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                onClick={() => setCurrentView("players")}
-                className="glass-card p-4 rounded-2xl text-center interactive"
-              >
-                <p className="text-2xl font-bold text-emerald-600">{completedProfiles}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium mt-1">Players</p>
-              </button>
-              <button
-                onClick={() => setCurrentView("courses")}
-                className="glass-card p-4 rounded-2xl text-center interactive"
-              >
-                <p className="text-2xl font-bold text-teal-600">{GOLF_COURSES.filter(c => c.scheduledDates.length > 0).length}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium mt-1">Courses</p>
-              </button>
-              <button
-                onClick={() => setCurrentView("costs")}
-                className="glass-card p-4 rounded-2xl text-center interactive"
-              >
-                <p className="text-2xl font-bold text-blue-600">${totalExpenses.toFixed(0)}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium mt-1">Total</p>
-              </button>
+              <div className="space-y-3">
+                {getSortedSquad().map((p, index) => {
+                  const status = getFlightStatus(p.arrivalFlight);
+                  const isLanded = status?.status === 'landed';
+                  const hasScore = (p.r1 > 0 || p.r2 > 0);
+                  const totalScore = (parseInt(p.r1) || 0) + (parseInt(p.r2) || 0);
+
+                  return (
+                    <div key={p.id} className="glass-card p-4 rounded-2xl flex items-center gap-3 relative overflow-hidden group">
+                      {isLanded && !hasScore && <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500"></div>}
+                      {hasScore && index === 0 && <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-400"></div>}
+
+                      {/* Avatar & Rank */}
+                      <div className="relative">
+                        {p.avatarUrl ? (
+                          <img src={p.avatarUrl} className="w-12 h-12 rounded-xl object-cover shadow-sm" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-slate-500 flex items-center justify-center font-bold text-lg">
+                            {p.name[0]}
+                          </div>
+                        )}
+                        {hasScore && index === 0 && (
+                          <div className="absolute -top-2 -left-2 text-xl filter drop-shadow-sm">👑</div>
+                        )}
+                      </div>
+
+                      {/* Info & Compact Flight */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-bold text-slate-900 dark:text-white truncate">{p.name.split(' ')[0]}</h4>
+                          {p.handicap && <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded font-mono">HCP {p.handicap}</span>}
+                        </div>
+
+                        {/* Explicitly Labeled Flight Data or Host Badge */}
+                        {p.isHost ? (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full text-xs font-bold flex items-center gap-1.5">
+                              🏠 Host
+                            </span>
+                          </div>
+                        ) : p.arrivalFlight ? (
+                          <div className="flex flex-col gap-0.5 text-[10px]">
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400 font-bold uppercase text-[8px] tracking-wider w-8">Flight</span>
+                              <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">{p.arrivalFlight}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400 font-bold uppercase text-[8px] tracking-wider w-8">Status</span>
+                              {status?.status === 'landed' ? (
+                                <span className="text-emerald-600 font-bold">Landed</span>
+                              ) : (
+                                <span className={status?.delay ? "text-amber-500 font-bold" : "text-slate-600 dark:text-slate-300"}>
+                                  {status?.label || "Unknown"}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400 font-bold uppercase text-[8px] tracking-wider w-8">Arr</span>
+                              <span className="text-slate-500 dark:text-slate-400">
+                                {new Date(p.arrivalDate + "T12:00:00").toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} {p.arrivalTime} {p.arrivalAirport && `• ${p.arrivalAirport}`}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-300 italic mt-1">
+                            <span className="text-slate-400 font-bold uppercase text-[8px] tracking-wider mr-2">Status</span>
+                            Traveling to HQ
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Score Cards (Right) */}
+                      <div className="flex gap-2">
+                        <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-600">
+                          <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">R1</span>
+                          <span className={`text-sm font-bold ${p.r1 > 0 ? 'text-slate-800 dark:text-white' : 'text-slate-300'}`}>
+                            {p.r1 || "-"}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-center justify-center w-10 h-10 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-600">
+                          <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">R2</span>
+                          <span className={`text-sm font-bold ${p.r2 > 0 ? 'text-slate-800 dark:text-white' : 'text-slate-300'}`}>
+                            {p.r2 || "-"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Flight Summary */}
-            {(() => {
-              // Get all arrivals sorted by time (no time = earliest)
-              const arrivals = players
-                .filter(p => p.name && p.arrivalDate)
-                .map(p => ({
-                  player: p.name,
-                  date: p.arrivalDate,
-                  time: p.arrivalTime || '',
-                  airport: p.arrivalAirport,
-                  flight: p.arrivalFlight,
-                  status: getFlightStatus(p.arrivalFlight),
-                }))
-                .sort((a, b) => {
-                  if (!a.time && !b.time) return 0;
-                  if (!a.time) return -1;
-                  if (!b.time) return 1;
-                  return a.time.localeCompare(b.time);
-                });
+            {/* 3. DEPARTURES (Collapsible) */}
+            <div className="border-t border-slate-100 dark:border-slate-700 pt-4">
+              <button
+                onClick={() => setShowDepartures(!showDepartures)}
+                className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl hover:bg-slate-100 transition-colors group"
+              >
+                <span className="font-bold text-slate-600 dark:text-slate-400 text-sm flex items-center gap-2">
+                  🛫 Departure Schedule
+                </span>
+                <span className={`text-slate-400 transition-transform duration-200 ${showDepartures ? 'rotate-180' : ''}`}>▼</span>
+              </button>
 
-              // Get all departures sorted by time (no time = earliest)
-              const departures = players
-                .filter(p => p.name && p.departureDate)
-                .map(p => ({
-                  player: p.name,
-                  date: p.departureDate,
-                  time: p.departureTime || '',
-                  airport: p.departureAirport,
-                  flight: p.departureFlight,
-                  status: getFlightStatus(p.departureFlight),
-                }))
-                .sort((a, b) => {
-                  if (!a.time && !b.time) return 0;
-                  if (!a.time) return -1;
-                  if (!b.time) return 1;
-                  return a.time.localeCompare(b.time);
-                });
+              {showDepartures && (
+                <div className="mt-3 space-y-2 animate-slide-up pl-4 border-l-2 border-slate-100 dark:border-slate-700 ml-4">
+                  {getSortedDepartures().map(p => {
+                    const status = getFlightStatus(p.departureFlight);
+                    if (!p.departureFlight && !p.departureDate) return null;
 
-              if (arrivals.length === 0 && departures.length === 0) return null;
-
-              return (
-                <div className="space-y-4">
-                  {/* Arrivals Section */}
-                  {arrivals.length > 0 && (
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-600 overflow-hidden">
-                      <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-cyan-50 border-b border-slate-100 dark:border-slate-600">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">✈️</span>
-                          <h3 className="font-semibold text-slate-800 dark:text-slate-100">Arrivals</h3>
-                          <span className="ml-auto text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-full">{arrivals.length}</span>
-                        </div>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {arrivals.map((arr, idx) => (
-                          <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:bg-slate-700 transition-colors">
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-sm flex-shrink-0">
-                                {arr.player.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="font-medium text-slate-800 dark:text-slate-100 truncate">{arr.player}</p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">
-                                  {arr.date && new Date(arr.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                                  {arr.time && ` • ${arr.time}`}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                              <div className="text-right">
-                                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{arr.airport || '—'}</p>
-                                <p className="text-xs text-slate-400 dark:text-slate-500">{arr.flight || 'No flight #'}</p>
-                              </div>
-                              {arr.status && (
-                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${arr.status.bg} ${arr.status.color}`}>
-                                  {arr.status.label}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Departures Section */}
-                  {departures.length > 0 && (
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-600 overflow-hidden">
-                      <div className="px-4 py-3 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-slate-100 dark:border-slate-600">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">🛫</span>
-                          <h3 className="font-semibold text-slate-800 dark:text-slate-100">Departures</h3>
-                          <span className="ml-auto text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-full">{departures.length}</span>
-                        </div>
-                      </div>
-                      <div className="divide-y divide-slate-100">
-                        {departures.map((dep, idx) => (
-                          <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:bg-slate-700 transition-colors">
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-semibold text-sm flex-shrink-0">
-                                {dep.player.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="font-medium text-slate-800 dark:text-slate-100 truncate">{dep.player}</p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">
-                                  {dep.date && new Date(dep.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                                  {dep.time && ` • ${dep.time}`}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                              <div className="text-right">
-                                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{dep.airport || '—'}</p>
-                                <p className="text-xs text-slate-400 dark:text-slate-500">{dep.flight || 'No flight #'}</p>
-                              </div>
-                              {dep.status && (
-                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${dep.status.bg} ${dep.status.color}`}>
-                                  {dep.status.label}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Squad Preview */}
-            <div className="glass-card rounded-2xl overflow-hidden">
-              <div className="p-4 border-b border-slate-100 dark:border-slate-600">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h3 className="font-bold text-slate-800 dark:text-slate-100">The Squad</h3>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">Live status updates</p>
-                  </div>
-                  <button
-                    onClick={() => setCurrentView("players")}
-                    className="text-xs text-emerald-600 font-semibold hover:text-emerald-700"
-                  >
-                    View All →
-                  </button>
-                </div>
-              </div>
-
-              {players.length === 0 ? (
-                <div className="p-8 text-center">
-                  <span className="text-4xl block mb-3">👥</span>
-                  <p className="text-slate-400 dark:text-slate-500 text-sm">No players yet. Share the invite!</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-50">
-                  {players.slice(0, 4).map(player => {
-                    const isMe = player.id === currentUser.id;
                     return (
-                      <div key={player.id} className="p-4 hover:bg-slate-50/50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          {player.avatarUrl ? (
-                            <img src={player.avatarUrl} alt={player.name} className={`w-11 h-11 rounded-xl object-cover shadow-sm ${isMe ? 'ring-2 ring-emerald-400' : ''}`} />
-                          ) : (
-                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm shadow-sm ${isMe
-                              ? "bg-gradient-to-br from-emerald-400 to-teal-500 text-white"
-                              : "bg-slate-100 text-slate-600 dark:text-slate-300"
-                              }`}>
-                              {player.name.charAt(0).toUpperCase()}
+                      <div key={p.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
+                        {/* Avatar */}
+                        <div className="w-10 h-10 rounded-lg bg-slate-200 text-slate-500 flex items-center justify-center font-bold text-sm">
+                          {p.name[0]}
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-sm text-slate-800 dark:text-white truncate">{p.name.split(' ')[0]}</h4>
+                          {p.departureFlight ? (
+                            <div className="flex flex-col gap-0.5 text-[10px] mt-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-400 font-bold uppercase text-[8px] tracking-wider w-8">Flight</span>
+                                <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">{p.departureFlight}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-400 font-bold uppercase text-[8px] tracking-wider w-8">Status</span>
+                                <span className={status?.delay ? "text-amber-500 font-bold" : "text-slate-600 dark:text-slate-300"}>
+                                  {status?.label || "Scheduled"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-slate-400 font-bold uppercase text-[8px] tracking-wider w-8">Dep</span>
+                                <span className="text-slate-500 dark:text-slate-400">
+                                  {new Date(p.departureDate + "T12:00:00").toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} {p.departureTime} {p.departureAirport && `• ${p.departureAirport}`}
+                                </span>
+                              </div>
                             </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                              {player.name}
-                              {isMe && <span className="text-xs text-emerald-500 ml-1.5 font-medium">(You)</span>}
-                            </p>
-                            <p className="text-xs text-slate-400 dark:text-slate-500">
-                              {player.handicap ? `HCP ${player.handicap}` : 'No handicap'}
-                              {hasFlightInfo(player) && ' • ✈️ Flight info added'}
-                            </p>
-                          </div>
-                          {isMe && (
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-soft"></span>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 mt-1">
+                              {new Date(p.departureDate + "T12:00:00").toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} {p.departureTime || ''}
+                            </div>
                           )}
                         </div>
                       </div>
                     );
                   })}
-                  {players.length > 4 && (
-                    <button
-                      onClick={() => setCurrentView("players")}
-                      className="w-full p-4 text-center text-sm text-emerald-600 font-medium hover:bg-emerald-50 transition-colors"
-                    >
-                      +{players.length - 4} more player{players.length - 4 !== 1 ? 's' : ''}
-                    </button>
-                  )}
                 </div>
               )}
             </div>
 
-            {/* Quick Actions */}
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => { setCurrentView("players"); startEditingProfile(currentUser); }}
-                className="glass-card p-4 rounded-2xl text-left interactive group"
-              >
-                <span className="text-2xl block mb-2 group-hover:scale-110 transition-transform origin-left">✏️</span>
-                <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm">Edit Profile</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">Update your info</p>
-              </button>
-              <button
-                onClick={() => setCurrentView("schedule")}
-                className="glass-card p-4 rounded-2xl text-left interactive group"
-              >
-                <span className="text-2xl block mb-2 group-hover:scale-110 transition-transform origin-left">📅</span>
-                <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm">View Schedule</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">See the itinerary</p>
-              </button>
-            </div>
+            {/* ADD PLAYER MODAL */}
+            {showAddPlayer && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 w-full max-w-sm shadow-xl animate-scale-in">
+                  <h3 className="text-xl font-bold mb-4 text-slate-900 dark:text-white">Invite Player</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase">Name</label>
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Tiger Woods"
+                        className="input mt-1"
+                        value={newPlayerForm.name}
+                        onChange={e => setNewPlayerForm({ ...newPlayerForm, name: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase">Phone</label>
+                      <input
+                        type="tel"
+                        placeholder="(555) 123-4567"
+                        className="input mt-1"
+                        value={newPlayerForm.phone}
+                        onChange={e => setNewPlayerForm({ ...newPlayerForm, phone: e.target.value })}
+                      />
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                      <button onClick={handleAddPlayer} className="btn-primary flex-1">Add to Squad</button>
+                      <button onClick={() => setShowAddPlayer(false)} className="btn-secondary">Cancel</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* House Intel Modal (Already implemented, ensuring it's kept) */}
+            <dialog id="house_intel_modal" className="modal bg-transparent p-0 w-full max-w-sm backdrop:backdrop-blur-sm backdrop:bg-black/30">
+              <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-2xl m-4 animate-scale-in">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold">🏠 House Intel</h3>
+                  <form method="dialog"><button className="btn-secondary rounded-full w-8 h-8 flex items-center justify-center">✕</button></form>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-2xl">
+                    <p className="text-xs text-slate-400 uppercase font-bold mb-1">Address</p>
+                    <p className="font-medium text-lg leading-snug mb-2">{getHouseInfo().address}</p>
+                    <button className="text-xs text-blue-600 font-bold bg-blue-50 px-3 py-1.5 rounded-lg flex items-center gap-1 w-fit"
+                      onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(getHouseInfo().address)}`, '_blank')}>
+                      📍 Open in Maps
+                    </button>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-2xl">
+                    <p className="text-xs text-slate-400 uppercase font-bold mb-1">WiFi</p>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm text-slate-500">Network</span>
+                      <span className="font-mono font-bold">{getHouseInfo().wifiName}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-slate-500">Password</span>
+                      <span className="font-mono font-bold text-emerald-600">{getHouseInfo().wifiPass}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-2xl text-center">
+                      <p className="text-xs text-slate-400 uppercase font-bold mb-1">Gate Code</p>
+                      <p className="text-2xl font-mono font-bold tracking-widest">{getHouseInfo().gateCode}</p>
+                    </div>
+                    <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-2xl text-center">
+                      <p className="text-xs text-slate-400 uppercase font-bold mb-1">Door Code</p>
+                      <p className="text-2xl font-mono font-bold tracking-widest">{getHouseInfo().doorCode}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </dialog>
+
           </div>
         )}
 
@@ -1421,6 +1753,26 @@ export default function GolfTripPlanner() {
                         </div>
                       </div>
 
+                      {/* Host Toggle */}
+                      <div className="flex items-center justify-between p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">🏠</span>
+                          <div>
+                            <p className="font-bold text-sm text-slate-800 dark:text-slate-100">I'm the Host</p>
+                            <p className="text-xs text-slate-500">Skip travel info – I'm already at the house</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={profileForm.isHost || false}
+                            onChange={e => setProfileForm({ ...profileForm, isHost: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 dark:peer-focus:ring-emerald-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-emerald-600"></div>
+                        </label>
+                      </div>
+
                       {/* Arrival Card */}
                       <div className="bg-gradient-to-r from-sky-50 to-blue-50 p-4 rounded-xl border border-sky-100">
                         <h4 className="font-semibold text-sm text-sky-700 mb-3 flex items-center gap-2">
@@ -1476,26 +1828,158 @@ export default function GolfTripPlanner() {
               {/* Other Players */}
               {players.filter(p => p.id !== currentUser.id).length > 0 && (
                 <div className="space-y-3">
-                  <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium px-1">Other Players</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium px-1 flex items-center gap-2">
+                    Other Players
+                    {currentUser.isAdmin && (
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">👑 Admin Mode</span>
+                    )}
+                  </p>
                   {players.filter(p => p.id !== currentUser.id).map(player => (
-                    <div key={player.id} className="glass-card rounded-2xl p-4 flex items-center gap-4 interactive">
-                      {player.avatarUrl ? (
-                        <img src={player.avatarUrl} alt={player.name} className="w-12 h-12 rounded-xl object-cover" />
+                    <div key={player.id} className="glass-card rounded-2xl overflow-hidden">
+                      {editingPlayerId === player.id ? (
+                        /* Admin editing another player's profile */
+                        <div className="p-5 space-y-6">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-amber-500">👑</span>
+                            <span className="text-sm font-medium text-amber-700 dark:text-amber-400">Editing as Admin</span>
+                          </div>
+
+                          {/* Profile Picture */}
+                          <div className="flex flex-col items-center">
+                            <div className="relative">
+                              {avatarPreview || profileForm.avatarUrl ? (
+                                <img src={avatarPreview || profileForm.avatarUrl} alt="Avatar" className="w-24 h-24 rounded-2xl object-cover shadow-lg" />
+                              ) : (
+                                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-3xl font-bold text-slate-400">
+                                  {profileForm.name.charAt(0) || '?'}
+                                </div>
+                              )}
+                              <label className="absolute -bottom-2 -right-2 w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center cursor-pointer shadow-lg hover:bg-emerald-600 transition-colors">
+                                <span className="text-white text-lg">📷</span>
+                                <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+                              </label>
+                            </div>
+                            {(avatarPreview || profileForm.avatarUrl) && (
+                              <button onClick={clearAvatar} className="mt-2 text-xs text-red-500 hover:text-red-600">Remove photo</button>
+                            )}
+                          </div>
+
+                          {/* Basic Info */}
+                          <div className="space-y-4">
+                            <div>
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Name</label>
+                              <input value={profileForm.name} onChange={e => setProfileForm({ ...profileForm, name: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100" />
+                            </div>
+                            <div>
+                              <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Handicap</label>
+                              <input type="number" value={profileForm.handicap} onChange={e => setProfileForm({ ...profileForm, handicap: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100" placeholder="e.g., 12" />
+                            </div>
+                          </div>
+
+                          {/* Arrival Info */}
+                          <div className="space-y-3">
+                            <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-wider flex items-center gap-2">
+                              <span>✈️</span> Arrival Details
+                            </h4>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs text-slate-500 dark:text-slate-400">Date</label>
+                                <input type="date" value={profileForm.arrivalDate} onChange={e => setProfileForm({ ...profileForm, arrivalDate: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100" />
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500 dark:text-slate-400">Time</label>
+                                <input type="time" value={profileForm.arrivalTime} onChange={e => setProfileForm({ ...profileForm, arrivalTime: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100" />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500 dark:text-slate-400">Airport</label>
+                              <select value={profileForm.arrivalAirport} onChange={e => setProfileForm({ ...profileForm, arrivalAirport: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100">
+                                <option value="">Select airport...</option>
+                                {AIRPORTS.map(a => <option key={a.code} value={a.code}>{a.code} - {a.name}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500 dark:text-slate-400">Flight Number</label>
+                              <input value={profileForm.arrivalFlight} onChange={e => setProfileForm({ ...profileForm, arrivalFlight: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100" placeholder="e.g., UA1234" />
+                            </div>
+                          </div>
+
+                          {/* Departure Info */}
+                          <div className="space-y-3">
+                            <h4 className="text-xs font-bold text-orange-600 uppercase tracking-wider flex items-center gap-2">
+                              <span>🛫</span> Departure Details
+                            </h4>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs text-slate-500 dark:text-slate-400">Date</label>
+                                <input type="date" value={profileForm.departureDate} onChange={e => setProfileForm({ ...profileForm, departureDate: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100" />
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500 dark:text-slate-400">Time</label>
+                                <input type="time" value={profileForm.departureTime} onChange={e => setProfileForm({ ...profileForm, departureTime: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100" />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500 dark:text-slate-400">Airport</label>
+                              <select value={profileForm.departureAirport} onChange={e => setProfileForm({ ...profileForm, departureAirport: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100">
+                                <option value="">Select airport...</option>
+                                {AIRPORTS.map(a => <option key={a.code} value={a.code}>{a.code} - {a.name}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500 dark:text-slate-400">Flight Number</label>
+                              <input value={profileForm.departureFlight} onChange={e => setProfileForm({ ...profileForm, departureFlight: e.target.value })} className="w-full mt-1 p-3 bg-slate-50 dark:bg-slate-800 border-0 rounded-xl focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-slate-100" placeholder="e.g., UA5678" />
+                            </div>
+                          </div>
+
+                          {/* Save/Cancel Buttons */}
+                          <div className="flex gap-3 pt-2">
+                            <button
+                              onClick={saveProfile}
+                              className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg"
+                            >
+                              💾 Save Changes
+                            </button>
+                            <button
+                              onClick={cancelEditProfile}
+                              className="px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-xl"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
                       ) : (
-                        <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-600 dark:text-slate-300">
-                          {player.name.charAt(0)}
+                        /* Normal player card view */
+                        <div className="p-4 flex items-center gap-4 interactive">
+                          {player.avatarUrl ? (
+                            <img src={player.avatarUrl} alt={player.name} className="w-12 h-12 rounded-xl object-cover" />
+                          ) : (
+                            <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-600 dark:text-slate-300">
+                              {player.name.charAt(0)}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{player.name}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">
+                              {player.handicap ? `HCP ${player.handicap}` : 'No handicap'}
+                              {hasFlightInfo(player) && ' • ✈️ Flight info'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {currentUser.isAdmin && (
+                              <button
+                                onClick={() => startEditingProfile(player)}
+                                className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-medium rounded-lg transition-colors"
+                              >
+                                ✏️ Edit
+                              </button>
+                            )}
+                            <div className={`px-2 py-1 rounded-full text-xs font-medium ${isProfileComplete(player) ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500 dark:text-slate-400 dark:text-slate-500'}`}>
+                              {isProfileComplete(player) ? '✓ Ready' : 'Pending'}
+                            </div>
+                          </div>
                         </div>
                       )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{player.name}</p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">
-                          {player.handicap ? `HCP ${player.handicap}` : 'No handicap'}
-                          {hasFlightInfo(player) && ' • ✈️ Flight info'}
-                        </p>
-                      </div>
-                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${isProfileComplete(player) ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500 dark:text-slate-400 dark:text-slate-500'}`}>
-                        {isProfileComplete(player) ? '✓ Ready' : 'Pending'}
-                      </div>
                     </div>
                   ))}
                 </div>
@@ -1610,105 +2094,113 @@ export default function GolfTripPlanner() {
                 const evening = day.activities.filter(a => a.type === "activity" || a.type === "other");
                 const other = day.activities.filter(a => !breakfast.includes(a) && !golf.includes(a) && !lunch.includes(a) && !dinner.includes(a) && !evening.includes(a));
 
+                const isExpanded = expandedDay === day.date;
+
                 return (
                   <div key={day.date} className="glass-card rounded-2xl overflow-hidden">
-                    {/* Day Header */}
-                    <div className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white p-4">
+                    {/* Day Header (Clickable) */}
+                    <button
+                      onClick={() => setExpandedDay(isExpanded ? null : day.date)}
+                      className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white p-4 flex items-center justify-between transition-all active:scale-[0.98]"
+                    >
                       <h4 className="font-bold">{day.label}</h4>
-                    </div>
+                      <span className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
+                    </button>
 
-                    <div className="p-4 space-y-4">
-                      {/* Activity Sections */}
-                      {[
-                        { items: breakfast, label: "Breakfast", icon: "🍳", color: "amber" },
-                        { items: golf, label: "Golf", icon: "⛳", color: "emerald" },
-                        { items: lunch, label: "Lunch", icon: "🥪", color: "orange" },
-                        { items: dinner, label: "Dinner", icon: "🍽️", color: "rose" },
-                        { items: evening, label: "Evening", icon: "🌙", color: "violet" },
-                      ].map(section => (
-                        <div key={section.label} className={`border-l-4 border-${section.color}-400 pl-4`}>
-                          <h5 className={`font-semibold text-sm text-${section.color}-700 mb-2 flex items-center gap-2`}>
-                            {section.icon} {section.label}
-                          </h5>
-                          {section.items.length > 0 ? section.items.map(activity => (
-                            <div key={activity.id} className={`flex items-start justify-between p-3 bg-${section.color}-50 rounded-xl mb-2`}>
-                              <div className="flex-1">
-                                <p className="font-medium text-sm text-slate-800 dark:text-slate-100">{activity.title}</p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-0.5">
-                                  {activity.time && <span className="mr-2">🕐 {activity.time}</span>}
-                                  {activity.location && <span>📍 {activity.location}</span>}
-                                </p>
-                              </div>
-                              <button onClick={() => removeActivity(activity.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-1">✕</button>
-                            </div>
-                          )) : (
-                            <p className="text-xs text-slate-400 dark:text-slate-500 italic py-1">No {section.label.toLowerCase()} planned</p>
-                          )}
-                        </div>
-                      ))}
-
-                      {/* Other Activities */}
-                      {other.length > 0 && (
-                        <div className="border-l-4 border-slate-300 pl-4">
-                          <h5 className="font-semibold text-sm text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-2">📌 Other</h5>
-                          {other.map(activity => (
-                            <div key={activity.id} className="flex items-start justify-between p-3 bg-slate-50 dark:bg-slate-700 rounded-xl mb-2">
-                              <div className="flex items-start gap-2 flex-1">
-                                <span>{activity.icon}</span>
-                                <div>
+                    {isExpanded && (
+                      <div className="p-4 space-y-4 animate-slide-up">
+                        {/* Activity Sections */}
+                        {[
+                          { items: breakfast, label: "Breakfast", icon: "🍳", color: "amber" },
+                          { items: golf, label: "Golf", icon: "⛳", color: "emerald" },
+                          { items: lunch, label: "Lunch", icon: "🥪", color: "orange" },
+                          { items: dinner, label: "Dinner", icon: "🍽️", color: "rose" },
+                          { items: evening, label: "Evening", icon: "🌙", color: "violet" },
+                        ].map(section => (
+                          <div key={section.label} className={`border-l-4 border-${section.color}-400 pl-4`}>
+                            <h5 className={`font-semibold text-sm text-${section.color}-700 mb-2 flex items-center gap-2`}>
+                              {section.icon} {section.label}
+                            </h5>
+                            {section.items.length > 0 ? section.items.map(activity => (
+                              <div key={activity.id} className={`flex items-start justify-between p-3 bg-${section.color}-50 rounded-xl mb-2`}>
+                                <div className="flex-1">
                                   <p className="font-medium text-sm text-slate-800 dark:text-slate-100">{activity.title}</p>
                                   <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-0.5">
-                                    {activity.time && <span className="mr-2">� {activity.time}</span>}
+                                    {activity.time && <span className="mr-2">🕐 {activity.time}</span>}
                                     {activity.location && <span>📍 {activity.location}</span>}
                                   </p>
                                 </div>
+                                <button onClick={() => removeActivity(activity.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-1">✕</button>
                               </div>
-                              <button onClick={() => removeActivity(activity.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-1">✕</button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                            )) : (
+                              <p className="text-xs text-slate-400 dark:text-slate-500 italic py-1">No {section.label.toLowerCase()} planned</p>
+                            )}
+                          </div>
+                        ))}
 
-                      {/* Add Activity */}
-                      {addingActivityDay === dayIndex ? (
-                        <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-xl border-2 border-dashed border-emerald-300 mt-4">
-                          <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mb-3">💡 Include "breakfast", "lunch", or "dinner" in titles to auto-categorize</p>
-                          <div className="flex flex-wrap gap-2 mb-4">
-                            {ACTIVITY_TYPES.map(t => (
-                              <button
-                                key={t.type}
-                                onClick={() => setActivityForm({ ...activityForm, type: t.type })}
-                                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activityForm.type === t.type ? "bg-emerald-500 text-white" : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-emerald-300"}`}
-                              >
-                                {t.icon} {t.label}
-                              </button>
+                        {/* Other Activities */}
+                        {other.length > 0 && (
+                          <div className="border-l-4 border-slate-300 pl-4">
+                            <h5 className="font-semibold text-sm text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-2">📌 Other</h5>
+                            {other.map(activity => (
+                              <div key={activity.id} className="flex items-start justify-between p-3 bg-slate-50 dark:bg-slate-700 rounded-xl mb-2">
+                                <div className="flex items-start gap-2 flex-1">
+                                  <span>{activity.icon}</span>
+                                  <div>
+                                    <p className="font-medium text-sm text-slate-800 dark:text-slate-100">{activity.title}</p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-0.5">
+                                      {activity.time && <span className="mr-2">� {activity.time}</span>}
+                                      {activity.location && <span>📍 {activity.location}</span>}
+                                    </p>
+                                  </div>
+                                </div>
+                                <button onClick={() => removeActivity(activity.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-1">✕</button>
+                              </div>
                             ))}
                           </div>
-                          <input
-                            type="text"
-                            value={activityForm.title}
-                            onChange={e => setActivityForm({ ...activityForm, title: e.target.value })}
-                            placeholder="What's the plan?"
-                            className="input mb-3"
-                          />
-                          <div className="grid grid-cols-2 gap-3 mb-4">
-                            <input type="time" value={activityForm.time} onChange={e => setActivityForm({ ...activityForm, time: e.target.value })} className="input text-sm" />
-                            <input type="text" value={activityForm.location} onChange={e => setActivityForm({ ...activityForm, location: e.target.value })} placeholder="Location" className="input text-sm" />
+                        )}
+
+                        {/* Add Activity */}
+                        {addingActivityDay === dayIndex ? (
+                          <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-xl border-2 border-dashed border-emerald-300 mt-4">
+                            <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mb-3">💡 Include "breakfast", "lunch", or "dinner" in titles to auto-categorize</p>
+                            <div className="flex flex-wrap gap-2 mb-4">
+                              {ACTIVITY_TYPES.map(t => (
+                                <button
+                                  key={t.type}
+                                  onClick={() => setActivityForm({ ...activityForm, type: t.type })}
+                                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${activityForm.type === t.type ? "bg-emerald-500 text-white" : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-emerald-300"}`}
+                                >
+                                  {t.icon} {t.label}
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              type="text"
+                              value={activityForm.title}
+                              onChange={e => setActivityForm({ ...activityForm, title: e.target.value })}
+                              placeholder="What's the plan?"
+                              className="input mb-3"
+                            />
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                              <input type="time" value={activityForm.time} onChange={e => setActivityForm({ ...activityForm, time: e.target.value })} className="input text-sm" />
+                              <input type="text" value={activityForm.location} onChange={e => setActivityForm({ ...activityForm, location: e.target.value })} placeholder="Location" className="input text-sm" />
+                            </div>
+                            <div className="flex gap-3">
+                              <button onClick={saveActivity} className="btn-primary flex-1">Add Activity</button>
+                              <button onClick={() => setAddingActivityDay(null)} className="btn-secondary px-6">Cancel</button>
+                            </div>
                           </div>
-                          <div className="flex gap-3">
-                            <button onClick={saveActivity} className="btn-primary flex-1">Add Activity</button>
-                            <button onClick={() => setAddingActivityDay(null)} className="btn-secondary px-6">Cancel</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => startAddingActivity(dayIndex)}
-                          className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-xl text-slate-400 dark:text-slate-500 text-sm font-medium hover:border-emerald-400 hover:text-emerald-600 transition-colors"
-                        >
-                          + Add Activity
-                        </button>
-                      )}
-                    </div>
+                        ) : (
+                          <button
+                            onClick={() => startAddingActivity(dayIndex)}
+                            className="w-full py-3 border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-xl text-slate-400 dark:text-slate-500 text-sm font-medium hover:border-emerald-400 hover:text-emerald-600 transition-colors"
+                          >
+                            + Add Activity
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1961,12 +2453,37 @@ export default function GolfTripPlanner() {
               <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">Track expenses and split fairly</p>
             </div>
 
+            {/* Your Balance Summary */}
+            {(() => {
+              const myBal = getMyBalance();
+              const isOwed = myBal.net > 0.01;
+              const owes = myBal.net < -0.01;
+              return (
+                <div className={`p-5 rounded-2xl border-2 ${isOwed ? 'bg-emerald-50 border-emerald-200' : owes ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={`text-xs font-semibold uppercase tracking-wider ${isOwed ? 'text-emerald-600' : owes ? 'text-rose-600' : 'text-slate-500'}`}>
+                        {isOwed ? "You'll get back" : owes ? "You'll pay" : "You're all settled"}
+                      </p>
+                      <p className={`text-3xl font-bold mt-1 ${isOwed ? 'text-emerald-700' : owes ? 'text-rose-700' : 'text-slate-600'}`}>
+                        ${Math.abs(myBal.net).toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="text-right text-sm">
+                      <p className="text-slate-500">Paid: <span className="font-semibold text-slate-700">${myBal.paid.toFixed(2)}</span></p>
+                      <p className="text-slate-500">Share: <span className="font-semibold text-slate-700">${myBal.owes.toFixed(2)}</span></p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Summary Cards */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-gradient-to-br from-emerald-500 to-teal-500 p-5 rounded-2xl text-white">
                 <p className="text-emerald-100 text-xs font-semibold uppercase tracking-wider">Trip Total</p>
-                <p className="text-3xl font-bold mt-1">${totalExpenses.toFixed(2)}</p>
-                <p className="text-emerald-200 text-xs mt-2">{expenses.length} expense{expenses.length !== 1 ? 's' : ''}</p>
+                <p className="text-3xl font-bold mt-1">${expenses.filter(e => e.category !== 'settlement').reduce((s, e) => s + e.amount, 0).toFixed(2)}</p>
+                <p className="text-emerald-200 text-xs mt-2">{expenses.filter(e => e.category !== 'settlement').length} expense{expenses.filter(e => e.category !== 'settlement').length !== 1 ? 's' : ''}</p>
               </div>
               <div className="bg-gradient-to-br from-blue-500 to-indigo-500 p-5 rounded-2xl text-white">
                 <p className="text-blue-100 text-xs font-semibold uppercase tracking-wider">Your Share</p>
@@ -1974,6 +2491,47 @@ export default function GolfTripPlanner() {
                 <p className="text-blue-200 text-xs mt-2">{myExpenses.length} item{myExpenses.length !== 1 ? 's' : ''}</p>
               </div>
             </div>
+
+            {/* Player Balances */}
+            {players.length > 1 && (
+              <div className="glass-card rounded-2xl overflow-hidden">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-600">
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <span>👥</span> Everyone's Balance
+                  </h3>
+                </div>
+                <div className="divide-y divide-slate-50">
+                  {calculateBalances().map(bal => {
+                    const player = players.find(p => p.id === bal.id);
+                    if (!player) return null;
+                    const isMe = player.id === currentUser?.id;
+                    return (
+                      <div key={bal.id} className={`p-4 flex items-center justify-between ${isMe ? 'bg-emerald-50/50' : ''}`}>
+                        <div className="flex items-center gap-3">
+                          {player.avatarUrl ? (
+                            <img src={player.avatarUrl} alt={player.name} className={`w-10 h-10 rounded-xl object-cover ${isMe ? 'ring-2 ring-emerald-400' : ''}`} />
+                          ) : (
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${isMe ? 'bg-emerald-200 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                              {player.name.charAt(0)}
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-semibold text-slate-800 dark:text-slate-100">
+                              {player.name}
+                              {isMe && <span className="text-xs text-emerald-600 ml-1">(You)</span>}
+                            </p>
+                            <p className="text-xs text-slate-400">Paid ${bal.paid.toFixed(2)}</p>
+                          </div>
+                        </div>
+                        <div className={`px-3 py-1.5 rounded-lg font-bold ${bal.net > 0.01 ? 'bg-emerald-100 text-emerald-700' : bal.net < -0.01 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>
+                          {bal.net > 0.01 ? '+' : ''}{bal.net < -0.01 ? '-' : ''}${Math.abs(bal.net).toFixed(2)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
 
             {/* Add Expense Button / Form */}
@@ -2140,18 +2698,89 @@ export default function GolfTripPlanner() {
               </div>
             )}
 
-            {/* Settlement Summary */}
-            {expenses.length > 0 && (
+            {/* Quick Add Expenses */}
+            {!showExpenseForm && (
+              <div className="glass-card p-4 rounded-2xl">
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-3">⚡ Quick Add</p>
+                <div className="flex flex-wrap gap-2">
+                  {QUICK_EXPENSES.map((qe, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setExpenseForm({
+                          description: qe.label,
+                          amount: "",
+                          category: qe.category,
+                          payerId: currentUser?.id || "",
+                          splitWith: players.map(p => p.id),
+                          splitEqually: true,
+                        });
+                        setShowExpenseForm(true);
+                      }}
+                      className="px-3 py-2 bg-slate-100 hover:bg-emerald-100 rounded-xl text-sm font-medium transition-colors flex items-center gap-1"
+                    >
+                      <span>{qe.icon}</span> {qe.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Category Breakdown */}
+            {expenses.filter(e => e.category !== 'settlement').length > 0 && (
+              <div className="glass-card rounded-2xl overflow-hidden">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-600">
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                    <span>📊</span> Spending by Category
+                  </h3>
+                </div>
+                <div className="p-4 space-y-3">
+                  {getCategoryTotals().map(({ category, total }) => {
+                    const cat = EXPENSE_CATEGORIES.find(c => c.type === category);
+                    const percentage = (total / expenses.filter(e => e.category !== 'settlement').reduce((s, e) => s + e.amount, 0)) * 100;
+                    return (
+                      <div key={category}>
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="flex items-center gap-2">
+                            <span>{cat?.icon || '📌'}</span>
+                            <span className="font-medium text-slate-700 dark:text-slate-200">{cat?.label || category}</span>
+                          </span>
+                          <span className="font-bold text-slate-800 dark:text-slate-100">${total.toFixed(2)}</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Settlement Summary - Now Tappable */}
+            {expenses.filter(e => e.category !== 'settlement').length > 0 && (
               <div className="bg-gradient-to-br from-amber-50 to-orange-50 p-4 rounded-xl shadow border border-amber-200">
                 <h3 className="font-bold text-amber-800 mb-3 flex items-center gap-2">
-                  <span>💸</span> Settlement Summary
+                  <span>💸</span> Settle Up
                 </h3>
+                <p className="text-xs text-amber-600 mb-3">Tap a payment to record it</p>
                 {calculateSettlements().length === 0 ? (
-                  <p className="text-amber-700 text-sm">✓ All settled up! No payments needed.</p>
+                  <div className="bg-white dark:bg-slate-800 p-4 rounded-lg text-center">
+                    <span className="text-2xl block mb-2">🎉</span>
+                    <p className="text-amber-700 font-medium">All settled up!</p>
+                    <p className="text-amber-600 text-sm">No payments needed.</p>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {calculateSettlements().map((s, i) => (
-                      <div key={i} className="flex items-center justify-between bg-white dark:bg-slate-800 p-3 rounded-lg shadow-sm">
+                      <button
+                        key={i}
+                        onClick={() => startSettlement(s.from, s.to, s.amount)}
+                        className="w-full flex items-center justify-between bg-white dark:bg-slate-800 p-3 rounded-lg shadow-sm hover:bg-amber-50 dark:hover:bg-amber-900 transition-colors border border-transparent hover:border-amber-300"
+                      >
                         <div className="flex items-center gap-2">
                           {getPlayerAvatar(s.from) ? (
                             <img src={getPlayerAvatar(s.from)} alt={getPlayerName(s.from)} className="w-8 h-8 rounded-full object-cover" />
@@ -2160,7 +2789,7 @@ export default function GolfTripPlanner() {
                               {getPlayerName(s.from).charAt(0)}
                             </span>
                           )}
-                          <span className="text-gray-600 dark:text-gray-300">→</span>
+                          <span className="text-amber-500 font-bold">→</span>
                           {getPlayerAvatar(s.to) ? (
                             <img src={getPlayerAvatar(s.to)} alt={getPlayerName(s.to)} className="w-8 h-8 rounded-full object-cover" />
                           ) : (
@@ -2170,13 +2799,103 @@ export default function GolfTripPlanner() {
                           )}
                         </div>
                         <div className="text-right">
-                          <p className="text-sm text-gray-500 dark:text-gray-400 dark:text-gray-500">{getPlayerName(s.from)} pays {getPlayerName(s.to)}</p>
-                          <p className="text-lg font-bold text-gray-800 dark:text-gray-100">${s.amount.toFixed(2)}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{getPlayerName(s.from)} pays {getPlayerName(s.to)}</p>
+                          <p className="text-lg font-bold text-amber-700">${s.amount.toFixed(2)}</p>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Settlement Recording Modal */}
+            {showSettlementModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-sm w-full p-5 animate-scale-in">
+                  <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+                    <span>💰</span> Record Payment
+                  </h3>
+
+                  <div className="space-y-4">
+                    {/* Payment Summary */}
+                    <div className="bg-emerald-50 p-4 rounded-xl text-center">
+                      <div className="flex items-center justify-center gap-3 mb-2">
+                        {getPlayerAvatar(settlementForm.fromId) ? (
+                          <img src={getPlayerAvatar(settlementForm.fromId)} alt="" className="w-12 h-12 rounded-full object-cover" />
+                        ) : (
+                          <span className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-lg">
+                            {getPlayerName(settlementForm.fromId).charAt(0)}
+                          </span>
+                        )}
+                        <span className="text-2xl">💵</span>
+                        {getPlayerAvatar(settlementForm.toId) ? (
+                          <img src={getPlayerAvatar(settlementForm.toId)} alt="" className="w-12 h-12 rounded-full object-cover" />
+                        ) : (
+                          <span className="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center font-bold text-lg">
+                            {getPlayerName(settlementForm.toId).charAt(0)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-emerald-700">
+                        <span className="font-semibold">{getPlayerName(settlementForm.fromId)}</span> pays <span className="font-semibold">{getPlayerName(settlementForm.toId)}</span>
+                      </p>
+                    </div>
+
+                    {/* Amount */}
+                    <div>
+                      <label className="text-sm text-slate-600 dark:text-slate-300 font-medium">Amount</label>
+                      <div className="relative mt-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={settlementForm.amount}
+                          onChange={e => setSettlementForm({ ...settlementForm, amount: e.target.value })}
+                          className="w-full pl-7 pr-3 py-3 border rounded-xl text-2xl font-bold text-center"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Payment Method */}
+                    <div>
+                      <label className="text-sm text-slate-600 dark:text-slate-300 font-medium mb-2 block">Payment Method</label>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { id: "cash", label: "💵 Cash" },
+                          { id: "venmo", label: "Venmo" },
+                          { id: "zelle", label: "Zelle" },
+                          { id: "paypal", label: "PayPal" },
+                          { id: "other", label: "Other" },
+                        ].map(pm => (
+                          <button
+                            key={pm.id}
+                            onClick={() => setSettlementForm({ ...settlementForm, method: pm.id })}
+                            className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${settlementForm.method === pm.id ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 dark:text-slate-300 hover:bg-slate-200'}`}
+                          >
+                            {pm.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={recordSettlement}
+                        className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-colors"
+                      >
+                        ✓ Mark as Paid
+                      </button>
+                      <button
+                        onClick={() => setShowSettlementModal(false)}
+                        className="px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-xl transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 

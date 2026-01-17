@@ -555,27 +555,10 @@ export default function GolfTripPlanner() {
   };
 
   const saveProfile = async () => {
-    console.log('saveProfile called!', { avatarFile, editingPlayerId, profileForm });
+    console.log('saveProfile called!', { avatarFile, avatarPreview, editingPlayerId });
 
-    let avatarUrl = profileForm.avatarUrl;
-
-    // Upload new avatar if selected
-    if (avatarFile) {
-      const fileName = `avatars/${editingPlayerId}_${Date.now()}.${avatarFile.name.split('.').pop()}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('receipts')  // Use existing receipts bucket
-        .upload(fileName, avatarFile);
-
-      if (uploadError) {
-        console.error('Avatar upload error:', uploadError);
-        alert('Failed to upload photo: ' + uploadError.message);
-      }
-      if (!uploadError && uploadData) {
-        const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(fileName);
-        avatarUrl = urlData?.publicUrl;
-        console.log('Avatar uploaded successfully:', avatarUrl);
-      }
-    }
+    // Use the avatar preview directly (it's a base64 data URL) - no storage bucket needed
+    let avatarUrl = avatarPreview || profileForm.avatarUrl;
 
     const { error: updateError } = await supabase.from('players').update({
       name: profileForm.name, handicap: profileForm.handicap || null,
@@ -1468,6 +1451,22 @@ export default function GolfTripPlanner() {
                           </select>
                           <input type="text" value={profileForm.departureFlight} onChange={e => setProfileForm({ ...profileForm, departureFlight: e.target.value })} placeholder="Flight # (e.g. UA456)" className="input text-sm" />
                         </div>
+                      </div>
+
+                      {/* Save/Cancel Buttons - Inline */}
+                      <div className="flex gap-3 pt-2">
+                        <button
+                          onClick={() => { console.log('SAVE CLICKED'); saveProfile(); }}
+                          className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg"
+                        >
+                          💾 Save Profile
+                        </button>
+                        <button
+                          onClick={cancelEditProfile}
+                          className="px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-xl"
+                        >
+                          Cancel
+                        </button>
                       </div>
                     </div>
                   )}

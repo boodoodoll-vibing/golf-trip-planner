@@ -1604,16 +1604,6 @@ export default function GolfTripPlanner() {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="font-bold text-slate-800 dark:text-slate-100 text-sm">{trip.name}</h1>
-                  {syncStatus === 'connecting' && (
-                    <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-semibold rounded-full animate-pulse">
-                      Syncing...
-                    </span>
-                  )}
-                  {syncStatus === 'error' && (
-                    <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-semibold rounded-full">
-                      Offline
-                    </span>
-                  )}
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">{trip.destination}</p>
               </div>

@@ -273,13 +273,16 @@ export default function GolfTripPlanner() {
     const onSubscribed = (status) => {
       if (status === 'SUBSCRIBED') {
         subscribed++;
-        if (subscribed === 7) {
-          console.log('[Realtime] All channels connected!');
+        // Show synced after most channels connect (don't require all 7)
+        if (subscribed >= 5) {
           setSyncStatus('synced');
         }
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         console.error('[Realtime] Subscription error:', status);
-        setSyncStatus('error');
+        // Only show error if core channels fail, not optional ones
+        if (subscribed < 4) {
+          setSyncStatus('error');
+        }
       }
     };
 

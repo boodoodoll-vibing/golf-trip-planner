@@ -1464,7 +1464,7 @@ export default function GolfTripPlanner() {
   const navItems = [
     { key: "dashboard", label: "Home", icon: "🏠" },
     { key: "players", label: "Squad", icon: "👥" },
-    { key: "proposals", label: "Votes", icon: "🗳️" },
+    { key: "proposals", label: "Limes", icon: "🍋" },
     { key: "courses", label: "Courses", icon: "⛳" },
     { key: "schedule", label: "Schedule", icon: "📅" },
     { key: "costs", label: "Costs", icon: "💰" },
@@ -2558,7 +2558,7 @@ export default function GolfTripPlanner() {
             <div className="glass-card p-5 rounded-2xl">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Squad Votes</h2>
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Liming Proposals</h2>
                   <p className="text-sm text-slate-500 dark:text-slate-400">Decide together, easily</p>
                 </div>
                 <button

@@ -171,6 +171,23 @@ export default function GolfTripPlanner() {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [scorecards, setScorecards] = useState({});
 
+  // Squad Proposals state
+  const [proposals, setProposals] = useState([]);
+  const [selectedProposal, setSelectedProposal] = useState(null);
+  const [showProposalForm, setShowProposalForm] = useState(false);
+  const [proposalForm, setProposalForm] = useState({
+    title: '',
+    description: '',
+    targetDate: '',
+    targetTime: '',
+    activityType: 'meal',
+    deadline: '',
+    url: '',
+  });
+  const [commentText, setCommentText] = useState('');
+  const [expandedComments, setExpandedComments] = useState({});
+  const [voteCelebration, setVoteCelebration] = useState({ show: false, x: 0, y: 0 });
+
   // Pull-to-refresh state
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -234,12 +251,29 @@ export default function GolfTripPlanner() {
         loadExpenses();
       });
 
-    // Subscribe with status callback
+    const proposalsCh = supabase.channel('proposals-ch')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'proposals' }, (payload) => {
+        console.log('[Realtime] Proposals changed:', payload.eventType);
+        loadProposals();
+      });
+
+    const proposalVotesCh = supabase.channel('proposal-votes-ch')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'proposal_votes' }, (payload) => {
+        console.log('[Realtime] Proposal votes changed:', payload.eventType);
+        loadProposals();
+      });
+
+    const proposalCommentsCh = supabase.channel('proposal-comments-ch')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'proposal_comments' }, (payload) => {
+        console.log('[Realtime] Proposal comments changed:', payload.eventType);
+        loadProposals();
+      });
+
     let subscribed = 0;
     const onSubscribed = (status) => {
       if (status === 'SUBSCRIBED') {
         subscribed++;
-        if (subscribed === 4) {
+        if (subscribed === 7) {
           console.log('[Realtime] All channels connected!');
           setSyncStatus('synced');
         }
@@ -253,25 +287,32 @@ export default function GolfTripPlanner() {
     activitiesCh.subscribe(onSubscribed);
     tripCh.subscribe(onSubscribed);
     expensesCh.subscribe(onSubscribed);
+    proposalsCh.subscribe(onSubscribed);
+    proposalVotesCh.subscribe(onSubscribed);
+    proposalCommentsCh.subscribe(onSubscribed);
 
     return () => {
       supabase.removeChannel(playersCh);
       supabase.removeChannel(activitiesCh);
       supabase.removeChannel(tripCh);
       supabase.removeChannel(expensesCh);
+      supabase.removeChannel(proposalsCh);
+      supabase.removeChannel(proposalVotesCh);
+      supabase.removeChannel(proposalCommentsCh);
     };
   }, [userLoaded]);
 
   const loadData = async () => {
     setLoading(true);
-    await Promise.all([loadPlayers(), loadTrip(), loadActivities(), loadExpenses()]);
+    await Promise.all([loadPlayers(), loadTrip(), loadActivities(), loadExpenses(), loadProposals()]);
     setLoading(false);
   };
+
 
   // Pull-to-refresh handlers
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await Promise.all([loadPlayers(), loadTrip(), loadActivities(), loadExpenses()]);
+    await Promise.all([loadPlayers(), loadTrip(), loadActivities(), loadExpenses(), loadProposals()]);
     setIsRefreshing(false);
   }, []);
 
@@ -1155,10 +1196,272 @@ export default function GolfTripPlanner() {
     return sum + (mySplit?.amount || 0);
   }, 0);
 
+  // ====== PROPOSAL FUNCTIONS ======
+
+  const loadProposals = async () => {
+    const { data, error } = await supabase
+      .from('proposals')
+      .select(`
+        *,
+        proposal_votes!proposal_votes_proposal_id_fkey (*),
+        proposal_comments (*)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching proposals:', error);
+      return;
+    }
+
+    if (data) {
+      setProposals(data.map(p => ({
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        url: p.url,
+        status: p.status,
+        createdBy: p.created_by,
+        targetDate: p.target_date,
+        targetTime: p.target_time,
+        activityType: p.activity_type,
+        deadline: p.deadline,
+        activityId: p.activity_id,
+        createdAt: p.created_at,
+        votes: p.proposal_votes || [],
+        comments: (p.proposal_comments || []).sort((a, b) =>
+          new Date(a.created_at) - new Date(b.created_at)
+        ),
+      })));
+    }
+  };
+
+
+  const createProposal = async () => {
+    if (!proposalForm.title || !proposalForm.targetDate) {
+      alert("Please provide a Title and Target Date.");
+      return;
+    }
+
+    const { error } = await supabase.from('proposals').insert({
+      title: proposalForm.title,
+      description: proposalForm.description || null,
+      target_date: proposalForm.targetDate,
+      target_time: proposalForm.targetTime || null,
+      activity_type: proposalForm.activityType,
+      deadline: proposalForm.deadline || null,
+      url: proposalForm.url || null,
+      created_by: currentUser.id,
+    });
+
+    if (error) {
+      console.error('Error creating proposal:', error);
+      alert('Failed to create proposal: ' + error.message);
+    } else {
+      setShowProposalForm(false);
+      setProposalForm({ title: '', description: '', targetDate: '', targetTime: '', activityType: 'meal', deadline: '', url: '' });
+      await loadProposals();
+    }
+  };
+
+  // Spawn celebration particles
+  const spawnVoteCelebration = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+
+    // Create particle container
+    const container = document.createElement('div');
+    container.className = 'vote-celebration';
+    container.style.left = `${x}px`;
+    container.style.top = `${y}px`;
+    container.style.position = 'fixed';
+    document.body.appendChild(container);
+
+    // Spawn particles
+    const particles = ['⭐', '❤️', '✨', '🎉'];
+    for (let i = 0; i < 6; i++) {
+      const particle = document.createElement('span');
+      particle.className = 'vote-particle';
+      particle.textContent = particles[Math.floor(Math.random() * particles.length)];
+      const angle = (Math.PI * 2 * i) / 6;
+      const distance = 30 + Math.random() * 20;
+      particle.style.setProperty('--tx', `${Math.cos(angle) * distance}px`);
+      particle.style.setProperty('--ty', `${Math.sin(angle) * distance}px`);
+      container.appendChild(particle);
+    }
+
+    // Cleanup after animation
+    setTimeout(() => container.remove(), 700);
+  };
+
+  // New voting model: Yes/No/Indifferent response
+  const handleVote = async (proposalId, response, event) => {
+    const existingVote = proposals.find(p => p.id === proposalId)?.votes
+      .find(v => v.player_id === currentUser.id);
+
+    if (existingVote?.response === response) {
+      // Remove vote if clicking same response
+      await supabase.from('proposal_votes').delete()
+        .eq('proposal_id', proposalId)
+        .eq('player_id', currentUser.id);
+    } else {
+      // Upsert vote
+      if (response === 'yes' && event) {
+        spawnVoteCelebration(event);
+      }
+      await supabase.from('proposal_votes').upsert({
+        proposal_id: proposalId,
+        player_id: currentUser.id,
+        response: response,
+      }, { onConflict: 'proposal_id,player_id' });
+    }
+    await loadProposals();
+  };
+
+  // Get vote counts by response type
+  const getVoteCounts = (proposal) => {
+    const votes = proposal.votes || [];
+    return {
+      yes: votes.filter(v => v.response === 'yes').length,
+      no: votes.filter(v => v.response === 'no').length,
+      indifferent: votes.filter(v => v.response === 'indifferent').length,
+    };
+  };
+
+  // Get current user's vote response
+  const getUserVote = (proposal) => {
+    return proposal.votes?.find(v => v.player_id === currentUser?.id)?.response || null;
+  };
+
+  // Get voters by response type
+  const getVotersByResponse = (proposal, response) => {
+    return proposal.votes?.filter(v => v.response === response)
+      .map(v => players.find(p => p.id === v.player_id))
+      .filter(Boolean) || [];
+  };
+
+  // Comment functions
+  const addComment = async (proposalId) => {
+    if (!commentText.trim()) return;
+
+    await supabase.from('proposal_comments').insert({
+      proposal_id: proposalId,
+      player_id: currentUser.id,
+      content: commentText.trim(),
+    });
+
+    setCommentText('');
+    await loadProposals();
+  };
+
+  const deleteComment = async (commentId) => {
+    await supabase.from('proposal_comments').delete().eq('id', commentId);
+    await loadProposals();
+  };
+
+  // Delete proposal (admin only) - also deletes associated activity if confirmed
+  const deleteProposal = async (proposal) => {
+    const isConfirmed = proposal.status === 'decided';
+    const confirmMsg = isConfirmed
+      ? 'Delete this confirmed event? This will also remove it from the schedule.'
+      : 'Are you sure you want to delete this suggestion? This cannot be undone.';
+
+    if (!confirm(confirmMsg)) return;
+
+    // If confirmed, delete the associated activity first
+    if (isConfirmed && proposal.activityId) {
+      const { error: activityError } = await supabase.from('activities').delete().eq('id', proposal.activityId);
+      if (activityError) {
+        alert('Failed to delete activity: ' + activityError.message);
+        return;
+      }
+    }
+
+    const { error } = await supabase.from('proposals').delete().eq('id', proposal.id);
+    if (error) {
+      alert('Failed to delete: ' + error.message);
+    } else {
+      await loadProposals();
+      await loadActivities();
+    }
+  };
+
+  // Cancel proposal (admin/creator)
+  const cancelProposal = async (proposalId) => {
+    if (!confirm('Cancel this suggestion? It will be marked as cancelled.')) return;
+
+    const { error } = await supabase.from('proposals').update({
+      status: 'cancelled'
+    }).eq('id', proposalId);
+
+    if (!error) await loadProposals();
+  };
+
+  // Finalize proposal - simplified for new model
+  const finalizeProposal = async (proposal) => {
+    const activityIcon = ACTIVITY_TYPES.find(t => t.type === proposal.activityType)?.icon || '📌';
+
+    // Build notes with all the details
+    let notes = '✓ Confirmed via Squad Vote';
+    if (proposal.description) {
+      notes += `\n${proposal.description}`;
+    }
+    if (proposal.url) {
+      notes += `\n🔗 ${proposal.url}`;
+    }
+
+    const { data: activityData, error: activityError } = await supabase.from('activities').insert({
+      day_date: proposal.targetDate,
+      time: proposal.targetTime || null,
+      type: proposal.activityType,
+      icon: activityIcon,
+      title: proposal.title,
+      location: null,
+      notes: notes,
+    }).select().single();
+
+    if (activityError) {
+      alert('Failed to create activity: ' + activityError.message);
+      return;
+    }
+
+    const { error: proposalError } = await supabase.from('proposals').update({
+      status: 'decided',
+      activity_id: activityData.id,
+    }).eq('id', proposal.id);
+
+    if (proposalError) {
+      alert('Failed to finalize: ' + proposalError.message);
+      return;
+    }
+
+    await loadProposals();
+    await loadActivities();
+    setCurrentView('schedule');
+  };
+
+  const getDeadlineStatus = (deadline) => {
+    if (!deadline) return null;
+    const now = new Date();
+    const deadlineDate = new Date(deadline);
+    const diff = deadlineDate - now;
+    if (diff < 0) return { label: 'Closed', urgent: false, expired: true };
+    if (diff < 60 * 60 * 1000) return { label: 'Last Call!', urgent: true, expired: false };
+    if (diff < 2 * 60 * 60 * 1000) {
+      const mins = Math.floor(diff / (60 * 1000));
+      return { label: `${mins}m left`, urgent: true, expired: false };
+    }
+    const hours = Math.floor(diff / (60 * 60 * 1000));
+    return { label: `${hours}h left`, urgent: false, expired: false };
+  };
+
+
+
   // Navigation icons mapping
   const navItems = [
     { key: "dashboard", label: "Home", icon: "🏠" },
     { key: "players", label: "Squad", icon: "👥" },
+    { key: "proposals", label: "Votes", icon: "🗳️" },
     { key: "courses", label: "Courses", icon: "⛳" },
     { key: "schedule", label: "Schedule", icon: "📅" },
     { key: "costs", label: "Costs", icon: "💰" },
@@ -2255,7 +2558,382 @@ export default function GolfTripPlanner() {
           )
         }
 
+        {/* PROPOSALS TAB (Squad Voting) */}
+        {currentView === "proposals" && (
+          <div className="space-y-5 animate-fade-in">
+            {/* Header */}
+            <div className="glass-card p-5 rounded-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Squad Votes</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Decide together, easily</p>
+                </div>
+                <button
+                  onClick={() => setShowProposalForm(true)}
+                  className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold text-xl shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Create Proposal Modal */}
+            {showProposalForm && (
+              <div className="fixed inset-0 bg-black/60 z-[100] flex items-start justify-center p-4 pt-8 pb-24 overflow-y-auto backdrop-blur-sm" onClick={() => setShowProposalForm(false)}>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 w-full max-w-md animate-scale-in shadow-2xl" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4">Create Vote</h3>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-sm text-slate-500 font-medium block mb-1">Question *</label>
+                      <input
+                        type="text"
+                        value={proposalForm.title}
+                        onChange={e => setProposalForm({ ...proposalForm, title: e.target.value })}
+                        placeholder="e.g. Friday Dinner?"
+                        className="input"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-slate-500 font-medium block mb-1">Description</label>
+                      <input
+                        type="text"
+                        value={proposalForm.description}
+                        onChange={e => setProposalForm({ ...proposalForm, description: e.target.value })}
+                        placeholder="Optional details..."
+                        className="input"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-slate-500 font-medium block mb-1">Link (optional)</label>
+                      <input
+                        type="url"
+                        value={proposalForm.url}
+                        onChange={e => setProposalForm({ ...proposalForm, url: e.target.value })}
+                        placeholder="https://..."
+                        className="input"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm text-slate-500 font-medium block mb-1">Date *</label>
+                        <input
+                          type="date"
+                          value={proposalForm.targetDate}
+                          onChange={e => setProposalForm({ ...proposalForm, targetDate: e.target.value })}
+                          className="input"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-slate-500 font-medium block mb-1">Time</label>
+                        <input
+                          type="time"
+                          value={proposalForm.targetTime}
+                          onChange={e => setProposalForm({ ...proposalForm, targetTime: e.target.value })}
+                          className="input"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm text-slate-500 font-medium block mb-1">Type</label>
+                        <select
+                          value={proposalForm.activityType}
+                          onChange={e => setProposalForm({ ...proposalForm, activityType: e.target.value })}
+                          className="input"
+                        >
+                          <option value="meal">🍽️ Meal</option>
+                          <option value="golf">⛳ Golf</option>
+                          <option value="activity">🎯 Activity</option>
+                          <option value="other">📌 Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-sm text-slate-500 font-medium block mb-1">Vote Deadline</label>
+                        <input
+                          type="datetime-local"
+                          value={proposalForm.deadline}
+                          onChange={e => setProposalForm({ ...proposalForm, deadline: e.target.value })}
+                          className="input"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 mt-5">
+                    <button onClick={() => setShowProposalForm(false)} className="btn-secondary flex-1">Cancel</button>
+                    <button onClick={createProposal} className="btn-primary flex-1">Create</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+
+
+            {/* Proposals List */}
+            {proposals.length === 0 ? (
+              <div className="glass-card p-8 rounded-2xl text-center">
+                <div className="text-5xl mb-4">🗳️</div>
+                <h3 className="font-bold text-slate-800 dark:text-white mb-2">No Suggestions Yet</h3>
+                <p className="text-sm text-slate-500 mb-4">Suggest a dinner, activity, or event for the squad!</p>
+                <button onClick={() => setShowProposalForm(true)} className="btn-primary">
+                  Make a Suggestion
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {proposals.map(proposal => {
+                  const voteCounts = getVoteCounts(proposal);
+                  const userVote = getUserVote(proposal);
+                  const deadlineStatus = getDeadlineStatus(proposal.deadline);
+                  const isCreator = proposal.createdBy === currentUser?.id;
+                  const isAdmin = currentUser?.isAdmin;
+                  const yesVoters = getVotersByResponse(proposal, 'yes');
+                  const showComments = expandedComments[proposal.id];
+
+                  return (
+                    <div key={proposal.id} className={`glass-card rounded-2xl overflow-hidden ${proposal.status === 'cancelled' ? 'opacity-50' : ''}`}>
+                      {/* Proposal Header */}
+                      <div className="p-4 border-b border-slate-100 dark:border-slate-700">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">
+                                {proposal.activityType === 'meal' ? '🍽️' :
+                                  proposal.activityType === 'golf' ? '⛳' :
+                                    proposal.activityType === 'activity' ? '🎯' : '📌'}
+                              </span>
+                              <h3 className="font-bold text-slate-800 dark:text-white truncate">{proposal.title}</h3>
+                              {proposal.status === 'decided' && (
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full">✓ Confirmed</span>
+                              )}
+                              {proposal.status === 'cancelled' && (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-xs font-bold rounded-full">Cancelled</span>
+                              )}
+                            </div>
+                            {proposal.description && (
+                              <p className="text-sm text-slate-500 dark:text-slate-400">{proposal.description}</p>
+                            )}
+                            {proposal.url && (
+                              <a
+                                href={proposal.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1 mt-1"
+                                onClick={e => e.stopPropagation()}
+                              >
+                                🔗 {proposal.url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]}
+                              </a>
+                            )}
+                            <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                              <span>📅 {new Date(proposal.targetDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                              {proposal.targetTime && <span>🕐 {proposal.targetTime}</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {deadlineStatus && (
+                              <span className={`px-2 py-1 rounded-full text-xs font-bold shrink-0 ${deadlineStatus.expired ? 'bg-slate-100 text-slate-500' :
+                                deadlineStatus.urgent ? 'bg-rose-100 text-rose-600 deadline-urgent' :
+                                  'bg-amber-100 text-amber-600'
+                                }`}>
+                                {deadlineStatus.label}
+                              </span>
+                            )}
+                            {/* Admin Delete Button - works for open and decided */}
+                            {isAdmin && (proposal.status === 'open' || proposal.status === 'decided') && (
+                              <button
+                                onClick={() => deleteProposal(proposal)}
+                                className="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center hover:bg-rose-200 transition-colors"
+                                title={proposal.status === 'decided' ? 'Delete confirmed event' : 'Delete suggestion'}
+                              >
+                                🗑️
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Voting Section - Yes/No/Indifferent */}
+                      {proposal.status === 'open' && !deadlineStatus?.expired && (
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50">
+                          <div className="flex gap-2 justify-center mb-3">
+                            <button
+                              onClick={(e) => handleVote(proposal.id, 'yes', e)}
+                              className={`flex-1 flex flex-col items-center justify-center py-3 px-4 rounded-xl transition-all font-bold ${userVote === 'yes'
+                                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                                : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-emerald-300 hover:text-emerald-600'
+                                }`}
+                            >
+                              <span className="text-xl">👍</span>
+                              <span className="text-xs mt-1">Yes ({voteCounts.yes})</span>
+                            </button>
+                            <button
+                              onClick={(e) => handleVote(proposal.id, 'no', e)}
+                              className={`flex-1 flex flex-col items-center justify-center py-3 px-4 rounded-xl transition-all font-bold ${userVote === 'no'
+                                ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20'
+                                : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-rose-300 hover:text-rose-600'
+                                }`}
+                            >
+                              <span className="text-xl">👎</span>
+                              <span className="text-xs mt-1">No ({voteCounts.no})</span>
+                            </button>
+                            <button
+                              onClick={(e) => handleVote(proposal.id, 'indifferent', e)}
+                              className={`flex-1 flex flex-col items-center justify-center py-3 px-4 rounded-xl transition-all font-bold ${userVote === 'indifferent'
+                                ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
+                                : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600'
+                                }`}
+                            >
+                              <span className="text-xl">😐</span>
+                              <span className="text-xs mt-1">Meh ({voteCounts.indifferent})</span>
+                            </button>
+                          </div>
+
+                          {/* Yes Voters Avatars */}
+                          {yesVoters.length > 0 && (
+                            <div className="flex items-center justify-center gap-1 mb-2">
+                              <span className="text-xs text-slate-400 mr-1">Going:</span>
+                              {yesVoters.slice(0, 6).map(voter => (
+                                voter?.avatarUrl ? (
+                                  <img key={voter.id} src={voter.avatarUrl} className="w-6 h-6 rounded-full object-cover border-2 border-white" title={voter.name} />
+                                ) : (
+                                  <span key={voter.id} className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold border-2 border-white" title={voter?.name}>
+                                    {voter?.name?.charAt(0) || '?'}
+                                  </span>
+                                )
+                              ))}
+                              {yesVoters.length > 6 && (
+                                <span className="text-xs text-slate-400">+{yesVoters.length - 6}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Decided Status */}
+                      {proposal.status === 'decided' && (
+                        <div className="p-4 bg-emerald-50">
+                          <div className="flex items-center justify-center gap-2 text-emerald-700 font-bold">
+                            <span className="text-xl">✓</span>
+                            <span>Confirmed! {voteCounts.yes} said yes</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Comments Section */}
+                      <div className="border-t border-slate-100 dark:border-slate-700">
+                        <button
+                          onClick={() => setExpandedComments({ ...expandedComments, [proposal.id]: !showComments })}
+                          className="w-full p-3 flex items-center justify-between text-sm text-slate-500 hover:bg-slate-50 transition-colors"
+                        >
+                          <span>💬 {proposal.comments?.length || 0} Comments</span>
+                          <span>{showComments ? '▲' : '▼'}</span>
+                        </button>
+
+                        {showComments && (
+                          <div className="px-4 pb-4 space-y-3">
+                            {/* Existing Comments */}
+                            {proposal.comments?.map(comment => {
+                              const commenter = players.find(p => p.id === comment.player_id);
+                              const isOwnComment = comment.player_id === currentUser?.id;
+                              return (
+                                <div key={comment.id} className="flex gap-2">
+                                  {commenter?.avatarUrl ? (
+                                    <img src={commenter.avatarUrl} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                                  ) : (
+                                    <span className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold shrink-0">
+                                      {commenter?.name?.charAt(0) || '?'}
+                                    </span>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2">
+                                      <span className="font-bold text-xs text-slate-700 dark:text-slate-300">{commenter?.name || 'Unknown'}</span>
+                                      <p className="text-sm text-slate-600 dark:text-slate-400">{comment.content}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
+                                      <span>{new Date(comment.created_at).toLocaleDateString()}</span>
+                                      {(isOwnComment || isAdmin) && (
+                                        <button onClick={() => deleteComment(comment.id)} className="text-rose-400 hover:text-rose-600">Delete</button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {/* Add Comment Input */}
+                            <div className="flex gap-2 mt-2">
+                              <input
+                                type="text"
+                                value={commentText}
+                                onChange={e => setCommentText(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && addComment(proposal.id)}
+                                placeholder="Add a comment..."
+                                className="flex-1 input text-sm"
+                              />
+                              <button
+                                onClick={() => addComment(proposal.id)}
+                                className="px-4 py-2 bg-emerald-500 text-white rounded-xl font-bold hover:bg-emerald-600 transition-colors"
+                              >
+                                Post
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Finalize Button (Admin/Creator only, if enough yes votes) */}
+                      {proposal.status === 'open' &&
+                        (isAdmin || isCreator) &&
+                        voteCounts.yes > 0 &&
+                        voteCounts.yes > voteCounts.no && (
+                          <div className="px-4 pb-4">
+                            <button
+                              onClick={() => finalizeProposal(proposal)}
+                              className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 hover:shadow-xl transition-all"
+                            >
+                              ✓ Confirm This Plan
+                            </button>
+                          </div>
+                        )}
+
+                      {/* Cancel Button (Admin/Creator only) */}
+                      {proposal.status === 'open' && (isAdmin || isCreator) && (
+                        <div className="px-4 pb-4">
+                          <button
+                            onClick={() => cancelProposal(proposal.id)}
+                            className="w-full py-2 text-slate-400 text-sm hover:text-rose-500 transition-colors"
+                          >
+                            Cancel this suggestion
+                          </button>
+                        </div>
+                      )}
+
+                      {/* View in Schedule link for decided proposals */}
+                      {proposal.status === 'decided' && proposal.activityId && (
+                        <div className="px-4 pb-4">
+                          <button
+                            onClick={() => setCurrentView('schedule')}
+                            className="w-full py-3 bg-slate-100 text-slate-600 font-medium rounded-xl hover:bg-slate-200 transition-colors"
+                          >
+                            📅 View in Schedule
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* COURSES TAB */}
+
         {currentView === "courses" && (
           <div className="space-y-5 animate-fade-in">
             {/* Header */}

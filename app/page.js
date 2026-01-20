@@ -2723,6 +2723,7 @@ export default function GolfTripPlanner() {
                               </a>
                             )}
                             <div className="flex items-center gap-3 mt-2 text-xs text-slate-400">
+                              <span>💡 {getPlayerName(proposal.createdBy)}</span>
                               <span>📅 {new Date(proposal.targetDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                               {proposal.targetTime && <span>🕐 {proposal.targetTime}</span>}
                             </div>
@@ -2792,9 +2793,9 @@ export default function GolfTripPlanner() {
                               <span className="text-xs text-slate-400 mr-1">Going:</span>
                               {yesVoters.slice(0, 6).map(voter => (
                                 voter?.avatarUrl ? (
-                                  <img key={voter.id} src={voter.avatarUrl} className="w-6 h-6 rounded-full object-cover border-2 border-white" title={voter.name} />
+                                  <img key={voter.id} src={voter.avatarUrl} className="w-8 h-8 rounded-full object-cover border-2 border-white shadow-sm" title={voter.name} />
                                 ) : (
-                                  <span key={voter.id} className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold border-2 border-white" title={voter?.name}>
+                                  <span key={voter.id} className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-bold border-2 border-white shadow-sm" title={voter?.name}>
                                     {voter?.name?.charAt(0) || '?'}
                                   </span>
                                 )

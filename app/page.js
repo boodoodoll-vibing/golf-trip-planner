@@ -2793,9 +2793,9 @@ export default function GolfTripPlanner() {
                               <span className="text-xs text-slate-400 mr-1">Going:</span>
                               {yesVoters.slice(0, 6).map(voter => (
                                 voter?.avatarUrl ? (
-                                  <img key={voter.id} src={voter.avatarUrl} className="w-8 h-8 rounded-full object-cover border-2 border-white shadow-sm" title={voter.name} />
+                                  <img key={voter.id} src={voter.avatarUrl} className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm" title={voter.name} />
                                 ) : (
-                                  <span key={voter.id} className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm font-bold border-2 border-white shadow-sm" title={voter?.name}>
+                                  <span key={voter.id} className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-base font-bold border-2 border-white shadow-sm" title={voter?.name}>
                                     {voter?.name?.charAt(0) || '?'}
                                   </span>
                                 )

@@ -187,6 +187,7 @@ export default function GolfTripPlanner() {
   const [commentText, setCommentText] = useState('');
   const [expandedComments, setExpandedComments] = useState({});
   const [voteCelebration, setVoteCelebration] = useState({ show: false, x: 0, y: 0 });
+  const [newlyCreatedProposal, setNewlyCreatedProposal] = useState(null); // For success modal with share
 
   // Pull-to-refresh state
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -1245,7 +1246,7 @@ export default function GolfTripPlanner() {
       return;
     }
 
-    const { error } = await supabase.from('proposals').insert({
+    const { data, error } = await supabase.from('proposals').insert({
       title: proposalForm.title,
       description: proposalForm.description || null,
       target_date: proposalForm.targetDate,
@@ -1254,15 +1255,56 @@ export default function GolfTripPlanner() {
       deadline: proposalForm.deadline || null,
       url: proposalForm.url || null,
       created_by: currentUser.id,
-    });
+    }).select().single();
 
     if (error) {
       console.error('Error creating proposal:', error);
       alert('Failed to create proposal: ' + error.message);
     } else {
       setShowProposalForm(false);
+      // Show success modal with share option
+      setNewlyCreatedProposal({
+        id: data.id,
+        title: proposalForm.title,
+        description: proposalForm.description,
+        targetDate: proposalForm.targetDate,
+        targetTime: proposalForm.targetTime,
+        activityType: proposalForm.activityType,
+        url: proposalForm.url,
+      });
       setProposalForm({ title: '', description: '', targetDate: '', targetTime: '', activityType: 'meal', deadline: '', url: '' });
       await loadProposals();
+    }
+  };
+
+  // Share proposal via native share or clipboard
+  const shareProposal = async (proposal) => {
+    const activityIcon = ACTIVITY_TYPES.find(t => t.type === proposal.activityType)?.icon || '📌';
+    const dateStr = new Date(proposal.targetDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const timeStr = proposal.targetTime ? ` at ${proposal.targetTime}` : '';
+
+    const text = `🗳️ Vote on: ${proposal.title}\n${activityIcon} ${dateStr}${timeStr}\n\nVote here:`;
+    const url = 'https://coolielime.com';
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Vote: ${proposal.title}`,
+          text: text,
+          url: url
+        });
+      } catch (err) {
+        // User cancelled or share failed - silently ignore
+        console.log('Share cancelled or failed:', err);
+      }
+    } else {
+      // Fallback: copy to clipboard
+      try {
+        await navigator.clipboard.writeText(`${text}\n${url}`);
+        alert('Link copied to clipboard!');
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
     }
   };
 
@@ -2665,6 +2707,41 @@ export default function GolfTripPlanner() {
               </div>
             )}
 
+            {/* Success Modal with Share */}
+            {newlyCreatedProposal && (
+              <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setNewlyCreatedProposal(null)}>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm animate-scale-in shadow-2xl text-center" onClick={e => e.stopPropagation()}>
+                  <div className="text-5xl mb-3">🎉</div>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2">Suggestion Created!</h3>
+
+                  <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-4 mb-4 text-left">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xl">{ACTIVITY_TYPES.find(t => t.type === newlyCreatedProposal.activityType)?.icon || '📌'}</span>
+                      <span className="font-bold text-slate-800 dark:text-white">{newlyCreatedProposal.title}</span>
+                    </div>
+                    <div className="text-sm text-slate-500">
+                      📅 {new Date(newlyCreatedProposal.targetDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {newlyCreatedProposal.targetTime && <span> • 🕐 {newlyCreatedProposal.targetTime}</span>}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => shareProposal(newlyCreatedProposal)}
+                    className="w-full py-3 px-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/30 transition-all flex items-center justify-center gap-2 mb-3"
+                  >
+                    <span className="text-lg">📤</span> Share with Squad
+                  </button>
+
+                  <button
+                    onClick={() => setNewlyCreatedProposal(null)}
+                    className="w-full py-2 text-slate-500 font-medium hover:text-slate-700 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+
 
 
             {/* Proposals List */}
@@ -2736,6 +2813,16 @@ export default function GolfTripPlanner() {
                                 }`}>
                                 {deadlineStatus.label}
                               </span>
+                            )}
+                            {/* Share Button */}
+                            {proposal.status === 'open' && (
+                              <button
+                                onClick={() => shareProposal(proposal)}
+                                className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center hover:bg-blue-200 transition-colors"
+                                title="Share with squad"
+                              >
+                                📤
+                              </button>
                             )}
                             {/* Admin Delete Button - works for open and decided */}
                             {isAdmin && (proposal.status === 'open' || proposal.status === 'decided') && (

@@ -108,6 +108,16 @@ export default function GolfTripPlanner() {
   const [editingPlayerId, setEditingPlayerId] = useState(null);
   const [addingActivityDay, setAddingActivityDay] = useState(null);
 
+  // Multi-Trip State
+  const [availableTrips, setAvailableTrips] = useState([]);
+  const [showTripSelector, setShowTripSelector] = useState(false);
+
+  // Create Trip State
+  const [createTripForm, setCreateTripForm] = useState({
+    name: "", location: "", startDate: "", endDate: "",
+    userName: "", userPhone: "", userPin: ""
+  });
+
   const [trip, setTrip] = useState({
     id: null,
     name: "Houston Golf Trip 2025",
@@ -120,7 +130,7 @@ export default function GolfTripPlanner() {
 
   const [expandedDay, setExpandedDay] = useState(() => new Date().toISOString().split('T')[0]);
   const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState({ name: "", phone: "", pin: "" });
+  const [authForm, setAuthForm] = useState({ name: "", phone: "", pin: "", inviteCode: "" });
   const [authError, setAuthError] = useState("");
 
   const [profileForm, setProfileForm] = useState({
@@ -224,101 +234,114 @@ export default function GolfTripPlanner() {
   useEffect(() => {
     if (!userLoaded) return;
 
-    loadData();
+    if (currentUser?.tripId) {
+      loadData(currentUser.tripId);
+    } else {
+      // No user logged in or no trip selected - stop loading
+      setLoading(false);
+    }
     setSyncStatus('connecting');
 
-    // Create channels with proper status handling
-    const playersCh = supabase.channel('players-ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, (payload) => {
-        console.log('[Realtime] Players changed:', payload.eventType);
-        loadPlayers();
-      });
+    // Only subscribe to channels for the current trip
+    if (currentUser?.tripId) {
+      // Create channels with proper status handling
+      const playersCh = supabase.channel(`players-ch-${currentUser.tripId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `trip_id=eq.${currentUser.tripId}` }, (payload) => {
+          console.log('[Realtime] Players changed:', payload.eventType);
+          loadPlayers(currentUser.tripId);
+        });
 
-    const activitiesCh = supabase.channel('activities-ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'activities' }, (payload) => {
-        console.log('[Realtime] Activities changed:', payload.eventType);
-        loadActivities();
-      });
+      const activitiesCh = supabase.channel(`activities-ch-${currentUser.tripId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'activities', filter: `trip_id=eq.${currentUser.tripId}` }, (payload) => {
+          console.log('[Realtime] Activities changed:', payload.eventType);
+          loadActivities(currentUser.tripId);
+        });
 
-    const tripCh = supabase.channel('trip-ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip' }, (payload) => {
-        console.log('[Realtime] Trip changed:', payload.eventType);
-        loadTrip();
-      });
+      const tripCh = supabase.channel(`trip-ch-${currentUser.tripId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'trips', filter: `id=eq.${currentUser.tripId}` }, (payload) => {
+          console.log('[Realtime] Trip changed:', payload.eventType);
+          loadTrip(currentUser.tripId);
+        });
 
-    const expensesCh = supabase.channel('expenses-ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, (payload) => {
-        console.log('[Realtime] Expenses changed:', payload.eventType);
-        loadExpenses();
-      });
+      const expensesCh = supabase.channel(`expenses-ch-${currentUser.tripId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses', filter: `trip_id=eq.${currentUser.tripId}` }, (payload) => {
+          console.log('[Realtime] Expenses changed:', payload.eventType);
+          loadExpenses(currentUser.tripId);
+        });
 
-    const proposalsCh = supabase.channel('proposals-ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'proposals' }, (payload) => {
-        console.log('[Realtime] Proposals changed:', payload.eventType);
-        loadProposals();
-      });
+      const proposalsCh = supabase.channel(`proposals-ch-${currentUser.tripId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'proposals', filter: `trip_id=eq.${currentUser.tripId}` }, (payload) => {
+          console.log('[Realtime] Proposals changed:', payload.eventType);
+          loadProposals(currentUser.tripId);
+        });
 
-    const proposalVotesCh = supabase.channel('proposal-votes-ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'proposal_votes' }, (payload) => {
-        console.log('[Realtime] Proposal votes changed:', payload.eventType);
-        loadProposals();
-      });
+      const proposalVotesCh = supabase.channel(`proposal-votes-ch-${currentUser.tripId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'proposal_votes' }, (payload) => {
+          // Can't easily filter join tables by trip_id unless we denormalize, but fetching again is safe
+          console.log('[Realtime] Proposal votes changed:', payload.eventType);
+          loadProposals(currentUser.tripId);
+        });
 
-    const proposalCommentsCh = supabase.channel('proposal-comments-ch')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'proposal_comments' }, (payload) => {
-        console.log('[Realtime] Proposal comments changed:', payload.eventType);
-        loadProposals();
-      });
+      const proposalCommentsCh = supabase.channel(`proposal-comments-ch-${currentUser.tripId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'proposal_comments' }, (payload) => {
+          console.log('[Realtime] Proposal comments changed:', payload.eventType);
+          loadProposals(currentUser.tripId);
+        });
 
-    let subscribed = 0;
-    const onSubscribed = (status) => {
-      if (status === 'SUBSCRIBED') {
-        subscribed++;
-        // Show synced after most channels connect (don't require all 7)
-        if (subscribed >= 5) {
-          setSyncStatus('synced');
+      let subscribed = 0;
+      const onSubscribed = (status) => {
+        if (status === 'SUBSCRIBED') {
+          subscribed++;
+          if (subscribed >= 5) setSyncStatus('synced');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('[Realtime] Subscription error:', status);
+          if (subscribed < 4) setSyncStatus('error');
         }
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        console.error('[Realtime] Subscription error:', status);
-        // Only show error if core channels fail, not optional ones
-        if (subscribed < 4) {
-          setSyncStatus('error');
-        }
-      }
-    };
+      };
 
-    playersCh.subscribe(onSubscribed);
-    activitiesCh.subscribe(onSubscribed);
-    tripCh.subscribe(onSubscribed);
-    expensesCh.subscribe(onSubscribed);
-    proposalsCh.subscribe(onSubscribed);
-    proposalVotesCh.subscribe(onSubscribed);
-    proposalCommentsCh.subscribe(onSubscribed);
+      playersCh.subscribe(onSubscribed);
+      activitiesCh.subscribe(onSubscribed);
+      tripCh.subscribe(onSubscribed);
+      expensesCh.subscribe(onSubscribed);
+      proposalsCh.subscribe(onSubscribed);
+      proposalVotesCh.subscribe(onSubscribed);
+      proposalCommentsCh.subscribe(onSubscribed);
 
-    return () => {
-      supabase.removeChannel(playersCh);
-      supabase.removeChannel(activitiesCh);
-      supabase.removeChannel(tripCh);
-      supabase.removeChannel(expensesCh);
-      supabase.removeChannel(proposalsCh);
-      supabase.removeChannel(proposalVotesCh);
-      supabase.removeChannel(proposalCommentsCh);
-    };
-  }, [userLoaded]);
+      return () => {
+        supabase.removeChannel(playersCh);
+        supabase.removeChannel(activitiesCh);
+        supabase.removeChannel(tripCh);
+        supabase.removeChannel(expensesCh);
+        supabase.removeChannel(proposalsCh);
+        supabase.removeChannel(proposalVotesCh);
+        supabase.removeChannel(proposalCommentsCh);
+      };
+    }
+  }, [userLoaded, currentUser?.tripId]); // Re-run when trip changes
 
-  const loadData = async () => {
+  const loadData = async (tripId) => {
+    if (!tripId) return;
     setLoading(true);
-    await Promise.all([loadPlayers(), loadTrip(), loadActivities(), loadExpenses(), loadProposals()]);
+    // Load Trip Metadata first
+    await loadTrip(tripId);
+    // Then load content
+    await Promise.all([
+      loadPlayers(tripId),
+      loadActivities(tripId),
+      loadExpenses(tripId),
+      loadProposals(tripId)
+    ]);
     setLoading(false);
   };
 
 
   // Pull-to-refresh handlers
   const handleRefresh = useCallback(async () => {
+    if (!currentUser?.tripId) return;
     setIsRefreshing(true);
-    await Promise.all([loadPlayers(), loadTrip(), loadActivities(), loadExpenses(), loadProposals()]);
+    await loadData(currentUser.tripId);
     setIsRefreshing(false);
-  }, []);
+  }, [currentUser]);
 
   const handleTouchStart = useCallback((e) => {
     // Only enable pull-to-refresh when scrolled to top (check window scroll, not element)
@@ -401,8 +424,14 @@ export default function GolfTripPlanner() {
     };
   }, [isRefreshing, pullDistance, handleRefresh, PULL_THRESHOLD]);
 
-  const loadPlayers = async () => {
-    const { data, error } = await supabase.from('players').select('*').order('created_at');
+  const loadPlayers = async (tripId) => {
+    if (!tripId) return;
+    const { data, error } = await supabase
+      .from('players')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('created_at');
+
     if (!error && data) {
       const mapped = data.map(p => ({
         id: p.id, phone: p.phone, pin: p.pin, name: p.name,
@@ -415,17 +444,20 @@ export default function GolfTripPlanner() {
         isHost: p.is_host || false,
         r1: p.r1 || 0,
         r2: p.r2 || 0,
+        tripId: p.trip_id
       }));
       setPlayers(mapped);
-      if (currentUser) {
+      // Update current user references if needed
+      if (currentUser && currentUser.tripId === tripId) {
         const updated = mapped.find(p => p.id === currentUser.id);
         if (updated) setCurrentUser(updated);
       }
     }
   };
 
-  const loadTrip = async () => {
-    const { data, error } = await supabase.from('trip').select('*').limit(1).single();
+  const loadTrip = async (tripId) => {
+    if (!tripId) return;
+    const { data, error } = await supabase.from('trips').select('*').eq('id', tripId).single();
     if (!error && data) {
       const t = {
         id: data.id,
@@ -439,14 +471,22 @@ export default function GolfTripPlanner() {
         houseAddress: data.house_address,
         gateCode: data.gate_code,
         doorCode: data.door_code,
+        inviteCode: data.invite_code,
       };
       setTrip(t);
       setTripForm(t);
     }
   };
 
-  const loadActivities = async () => {
-    const { data, error } = await supabase.from('activities').select('*').order('day_date').order('time');
+  const loadActivities = async (tripId) => {
+    if (!tripId) return;
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .eq('trip_id', tripId)
+      .order('day_date')
+      .order('time');
+
     if (!error && data) {
       setActivities(data.map(a => ({
         id: a.id, dayDate: a.day_date, type: a.type, icon: a.icon,
@@ -603,14 +643,11 @@ export default function GolfTripPlanner() {
     // Hardcoded pin for "invite" flow? Or just create placeholder?
     const pin = Math.floor(1000 + Math.random() * 9000).toString();
 
-    // Check if user already exists?
-    // For now just insert, Supabase constraint might fail if phone unique
-
     const { error } = await supabase.from('players').insert({
       name: newPlayerForm.name,
       phone: phone,
       pin: pin,
-      trip_id: trip.id
+      trip_id: currentUser.tripId
     });
 
     if (!error) {
@@ -778,9 +815,27 @@ export default function GolfTripPlanner() {
     if (phone.length < 10) { setAuthError("Enter a valid 10-digit phone"); return; }
     if (authForm.pin.length !== 4) { setAuthError("PIN must be 4 digits"); return; }
     if (!authForm.name.trim()) { setAuthError("Enter your name"); return; }
+    if (!authForm.inviteCode) { setAuthError("Enter Trip Invite Code"); return; }
+
+    const { data: tripData, error: tripError } = await supabase
+      .from('trips')
+      .select('id')
+      .eq('invite_code', authForm.inviteCode.toUpperCase().trim())
+      .single();
+
+    if (tripError || !tripData) {
+      setAuthError("Invalid Invite Code");
+      return;
+    }
+
     if (players.find(p => normalizePhone(p.phone) === phone)) { setAuthError("Phone already registered"); return; }
 
-    const { data, error } = await supabase.from('players').insert({ phone, pin: authForm.pin, name: authForm.name.trim() }).select().single();
+    const { data, error } = await supabase.from('players').insert({
+      phone,
+      pin: authForm.pin,
+      name: authForm.name.trim(),
+      trip_id: tripData.id
+    }).select().single();
 
     if (error) {
       setAuthError("Registration failed: " + error.message);
@@ -788,30 +843,157 @@ export default function GolfTripPlanner() {
     }
 
     setCurrentUser({
-      id: data.id,
-      phone: data.phone,
-      pin: data.pin,
-      name: data.name,
-      handicap: "",
-      r1: 0, r2: 0, // Init scores
-      arrivalDate: "", arrivalTime: "", arrivalAirport: "", arrivalFlight: "",
-      departureDate: "", departureTime: "", departureAirport: "", departureFlight: "",
+      ...data,
+      tripId: tripData.id,
+      avatarUrl: null,
       isAdmin: false
     });
-    setAuthForm({ name: "", phone: "", pin: "" });
-    await loadPlayers();
+    setAuthMode("login");
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setAuthError("");
     const phone = normalizePhone(authForm.phone);
     if (phone.length < 10) { setAuthError("Enter a valid 10-digit phone"); return; }
     if (authForm.pin.length !== 4) { setAuthError("PIN must be 4 digits"); return; }
-    const player = players.find(p => normalizePhone(p.phone) === phone);
-    if (!player) { setAuthError("Phone not found. Register first?"); return; }
-    if (player.pin !== authForm.pin) { setAuthError("Incorrect PIN"); return; }
-    setCurrentUser(player);
-    setAuthForm({ name: "", phone: "", pin: "" });
+
+    // Find ALL player records for this phone/pin
+    const { data: matches, error } = await supabase
+      .from('players')
+      .select('*, trips(*)') // Join with trips to get name
+      .eq('phone', phone)
+      .eq('pin', authForm.pin);
+
+    if (error || !matches || matches.length === 0) {
+      // No matches found - offer to Create Trip
+      if (confirm("No trips found. Would you like to create a new trip?")) {
+        setAuthMode("create");
+      } else {
+        setAuthError("Phone/PIN not found.");
+      }
+      return;
+    }
+
+    if (matches.length === 1) {
+      // Single trip - log straight in
+      const player = matches[0];
+      setCurrentUser({
+        ...player,
+        tripId: player.trip_id,
+        avatarUrl: player.avatar_url,
+        arrivalDate: player.arrival_date,
+        arrivalTime: player.arrival_time,
+        arrivalAirport: player.arrival_airport,
+        arrivalFlight: player.arrival_flight,
+        departureDate: player.departure_date,
+        departureTime: player.departure_time,
+        departureAirport: player.departure_airport,
+        departureFlight: player.departure_flight,
+        isAdmin: player.is_admin,
+        isHost: player.is_host,
+      });
+      setAuthForm({ name: "", phone: "", pin: "", inviteCode: "" });
+    } else {
+      // Multiple trips - show selector
+      setAvailableTrips(matches.map(p => ({
+        playerId: p.id,
+        tripId: p.trip_id,
+        tripName: p.trips?.name || "Unnamed Trip",
+        date: p.trips?.start_date
+      })));
+      setShowTripSelector(true);
+    }
+  };
+
+  const handleSelectTrip = async (tripData) => {
+    // Determine which player record corresponds to this trip
+    // We already have the player ID from the availableTrips map if we did it right
+    // Actually handleLogin mapped it: { playerId, tripId }
+
+    // We need to fetch the full player record again or just use what we have?
+    // Let's fetch the specific player record to be safe and get fresh data
+    const { data: player, error } = await supabase
+      .from('players')
+      .select('*')
+      .eq('id', tripData.playerId)
+      .single();
+
+    if (player && !error) {
+      setCurrentUser({
+        ...player,
+        tripId: player.trip_id,
+        avatarUrl: player.avatar_url,
+        // ... (rest of fields map naturally)
+        isAdmin: player.is_admin,
+        isHost: player.is_host,
+      });
+      setAvailableTrips([]);
+      setShowTripSelector(false);
+    }
+  };
+
+  const handleCreateTrip = async () => {
+    if (!createTripForm.name) {
+      alert("Please enter a trip name");
+      return;
+    }
+
+    // 1. Create Trip
+    const { data: newTrip, error: tripError } = await supabase
+      .from('trips')
+      .insert({
+        name: createTripForm.name,
+        location: createTripForm.location || null,
+        start_date: createTripForm.startDate || null,
+        end_date: createTripForm.endDate || null,
+        invite_code: Math.random().toString(36).substring(2, 8).toUpperCase()
+      })
+      .select()
+      .single();
+
+    if (tripError) {
+      alert("Error creating trip: " + tripError.message);
+      return;
+    }
+
+    // 2. Create Admin Player (using the details from auth form or defaults)
+    // If we came from "Create" auth mode, we might need name/phone
+    // Use authForm or createTripForm depending on flow.
+    // Let's assume user entered details in the Create Trip screen if they aren't logged in.
+
+    const phone = normalizePhone(createTripForm.userPhone || authForm.phone);
+    const pin = createTripForm.userPin || authForm.pin;
+    const name = createTripForm.userName || authForm.name;
+
+    const { data: newPlayer, error: playerError } = await supabase
+      .from('players')
+      .insert({
+        name: name,
+        phone: phone,
+        pin: pin,
+        trip_id: newTrip.id,
+        is_admin: true,
+        is_host: true
+      })
+      .select()
+      .single();
+
+    if (playerError) {
+      alert("Trip created but player registration failed: " + playerError.message);
+      return;
+    }
+
+    // 3. Log in
+    setCurrentUser({
+      ...newPlayer,
+      tripId: newTrip.id,
+      avatarUrl: null,
+      isAdmin: true,
+      isHost: true
+    });
+
+    setAuthMode("login");
+    // creating trip implies we are done
   };
 
   const handleLogout = () => {
@@ -866,7 +1048,7 @@ export default function GolfTripPlanner() {
     setEditingPlayerId(null);
     setAvatarPreview(null);
     setAvatarFile(null);
-    await loadPlayers();
+    await loadPlayers(currentUser.tripId);
   };
 
   const cancelEditProfile = () => {
@@ -901,7 +1083,7 @@ export default function GolfTripPlanner() {
       start_date: tripForm.startDate, end_date: tripForm.endDate,
     }).eq('id', trip.id);
     setEditingTrip(false);
-    await loadTrip();
+    await loadTrip(currentUser.tripId);
   };
 
   const startAddingActivity = (dayIndex) => {
@@ -918,20 +1100,22 @@ export default function GolfTripPlanner() {
       location: activityForm.location || null, notes: activityForm.notes || null,
     });
     setAddingActivityDay(null);
-    await loadActivities();
+    await loadActivities(currentUser.tripId);
   };
 
   const removeActivity = async (activityId) => {
     await supabase.from('activities').delete().eq('id', activityId);
-    await loadActivities();
+    await loadActivities(currentUser.tripId);
   };
 
   // ====== EXPENSE FUNCTIONS ======
 
-  const loadExpenses = async () => {
+  const loadExpenses = async (tripId) => {
+    if (!tripId) return;
     const { data, error } = await supabase
       .from('expenses')
       .select('*, expense_splits(*)')
+      .eq('trip_id', tripId)
       .order('created_at', { ascending: false });
 
     if (!error && data) {
@@ -1025,7 +1209,7 @@ export default function GolfTripPlanner() {
       }
 
       resetExpenseForm();
-      await loadExpenses();
+      await loadExpenses(currentUser.tripId);
     } catch (err) {
       console.error('Error saving expense:', err);
     } finally {
@@ -1035,7 +1219,7 @@ export default function GolfTripPlanner() {
 
   const deleteExpense = async (expenseId) => {
     await supabase.from('expenses').delete().eq('id', expenseId);
-    await loadExpenses();
+    await loadExpenses(currentUser.tripId);
   };
 
   // Record a settlement (debt payment)
@@ -1068,7 +1252,7 @@ export default function GolfTripPlanner() {
 
       setShowSettlementModal(false);
       setSettlementForm({ fromId: "", toId: "", amount: "", method: "cash" });
-      await loadExpenses();
+      await loadExpenses(currentUser.tripId);
     }
   };
 
@@ -1202,7 +1386,8 @@ export default function GolfTripPlanner() {
 
   // ====== PROPOSAL FUNCTIONS ======
 
-  const loadProposals = async () => {
+  const loadProposals = async (tripId) => {
+    if (!tripId) return;
     const { data, error } = await supabase
       .from('proposals')
       .select(`
@@ -1210,6 +1395,7 @@ export default function GolfTripPlanner() {
         proposal_votes!proposal_votes_proposal_id_fkey (*),
         proposal_comments (*)
       `)
+      .eq('trip_id', tripId)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -1273,7 +1459,7 @@ export default function GolfTripPlanner() {
         url: proposalForm.url,
       });
       setProposalForm({ title: '', description: '', targetDate: '', targetTime: '', activityType: 'meal', deadline: '', url: '' });
-      await loadProposals();
+      await loadProposals(currentUser.tripId);
     }
   };
 
@@ -1360,7 +1546,7 @@ export default function GolfTripPlanner() {
         response: response,
       }, { onConflict: 'proposal_id,player_id' });
     }
-    await loadProposals();
+    await loadProposals(currentUser.tripId);
   };
 
   // Get vote counts by response type
@@ -1396,12 +1582,12 @@ export default function GolfTripPlanner() {
     });
 
     setCommentText('');
-    await loadProposals();
+    await loadProposals(currentUser.tripId);
   };
 
   const deleteComment = async (commentId) => {
     await supabase.from('proposal_comments').delete().eq('id', commentId);
-    await loadProposals();
+    await loadProposals(currentUser.tripId);
   };
 
   // Delete proposal (admin only) - also deletes associated activity if confirmed
@@ -1426,8 +1612,8 @@ export default function GolfTripPlanner() {
     if (error) {
       alert('Failed to delete: ' + error.message);
     } else {
-      await loadProposals();
-      await loadActivities();
+      await loadProposals(currentUser.tripId);
+      await loadActivities(currentUser.tripId);
     }
   };
 
@@ -1439,7 +1625,7 @@ export default function GolfTripPlanner() {
       status: 'cancelled'
     }).eq('id', proposalId);
 
-    if (!error) await loadProposals();
+    if (!error) await loadProposals(currentUser.tripId);
   };
 
   // Finalize proposal - simplified for new model
@@ -1480,8 +1666,8 @@ export default function GolfTripPlanner() {
       return;
     }
 
-    await loadProposals();
-    await loadActivities();
+    await loadProposals(currentUser.tripId);
+    await loadActivities(currentUser.tripId);
     setCurrentView('schedule');
   };
 
@@ -1533,7 +1719,7 @@ export default function GolfTripPlanner() {
         <div className="pt-12 pb-8 px-6 text-center">
           <div className="text-5xl mb-4">⛳</div>
           <h1 className="text-display text-slate-800 dark:text-slate-100">Golf Trip</h1>
-          <p className="text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-2 font-medium">{trip.name}</p>
+          <p className="text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-2 font-medium">Plan your perfect getaway</p>
         </div>
 
         <div className="flex-1 px-5 pb-8 flex flex-col justify-center max-w-md mx-auto w-full">
@@ -1561,61 +1747,207 @@ export default function GolfTripPlanner() {
 
           {/* Auth Card */}
           <div className="glass-card p-6 rounded-3xl animate-fade-in">
-            <h2 className="text-heading text-slate-800 dark:text-slate-100 mb-6">
-              {authMode === "login" ? "Welcome back" : "Join the adventure"}
-            </h2>
-
-            {authMode === "register" && (
-              <div className="mb-5">
-                <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">Your Name</label>
-                <input
-                  type="text"
-                  value={authForm.name}
-                  onChange={e => setAuthForm({ ...authForm, name: e.target.value })}
-                  placeholder="John Smith"
-                  className="input"
-                />
+            {/* NEW: Trip Selector Mode */}
+            {showTripSelector ? (
+              <div className="animate-fade-in">
+                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4 text-center">Select your Trip</h3>
+                <div className="space-y-3 mb-6 max-h-60 overflow-y-auto">
+                  {availableTrips.map(t => (
+                    <button
+                      key={t.tripId}
+                      onClick={() => handleSelectTrip(t)}
+                      className="w-full p-4 bg-slate-50 dark:bg-slate-700/50 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border border-slate-200 dark:border-slate-700 rounded-xl text-left transition-all group"
+                    >
+                      <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                        {t.tripName}
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        {t.date || "Dates TBD"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => { setShowTripSelector(false); setAvailableTrips([]); }}
+                  className="w-full py-3 text-slate-500 font-medium hover:text-slate-800"
+                >
+                  Back to Login
+                </button>
               </div>
+            ) : (
+              <>
+                <h2 className="text-heading text-slate-800 dark:text-slate-100 mb-6">
+                  {authMode === "login" && "Welcome back"}
+                  {authMode === "register" && "Join the adventure"}
+                  {authMode === "create" && "Plan a New Trip"}
+                </h2>
+
+                {authMode === "create" ? (
+                  /* CREATE TRIP FORM */
+                  <div className="animate-fade-in">
+                    <div className="mb-4">
+                      <label className="text-sm text-slate-500 font-medium block mb-2">Trip Name</label>
+                      <input
+                        type="text"
+                        value={createTripForm.name}
+                        onChange={e => setCreateTripForm({ ...createTripForm, name: e.target.value })}
+                        placeholder="e.g. Pinehurst 2026"
+                        className="input"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="text-sm text-slate-500 font-medium block mb-2">Start Date (Opt)</label>
+                        <input
+                          type="date"
+                          value={createTripForm.startDate}
+                          onChange={e => setCreateTripForm({ ...createTripForm, startDate: e.target.value })}
+                          className="input"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-slate-500 font-medium block mb-2">End Date (Opt)</label>
+                        <input
+                          type="date"
+                          value={createTripForm.endDate}
+                          onChange={e => setCreateTripForm({ ...createTripForm, endDate: e.target.value })}
+                          className="input"
+                        />
+                      </div>
+                    </div>
+                    <hr className="border-slate-100 dark:border-slate-700 my-6" />
+                    <p className="text-sm text-slate-400 mb-4 font-medium uppercase tracking-wider">Organizer Details</p>
+
+                    <div className="mb-4">
+                      <label className="text-sm text-slate-500 font-medium block mb-2">Your Name</label>
+                      <input
+                        type="text"
+                        value={createTripForm.userName}
+                        onChange={e => setCreateTripForm({ ...createTripForm, userName: e.target.value })}
+                        placeholder="Your Name"
+                        className="input"
+                      />
+                    </div>
+                    <div className="mb-4">
+                      <label className="text-sm text-slate-500 font-medium block mb-2">Phone</label>
+                      <input
+                        type="tel"
+                        value={createTripForm.userPhone}
+                        onChange={e => setCreateTripForm({ ...createTripForm, userPhone: e.target.value })}
+                        placeholder="(555) 123-4567"
+                        className="input"
+                      />
+                    </div>
+                    <div className="mb-6">
+                      <label className="text-sm text-slate-500 font-medium block mb-2">Create PIN</label>
+                      <input
+                        type="password"
+                        maxLength={4}
+                        value={createTripForm.userPin}
+                        onChange={e => setCreateTripForm({ ...createTripForm, userPin: e.target.value.replace(/\D/g, '') })}
+                        placeholder="••••"
+                        className="input text-center text-2xl tracking-[0.5em] font-bold"
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleCreateTrip}
+                      className="btn-primary w-full"
+                    >
+                      Create Trip
+                    </button>
+
+                    <button
+                      onClick={() => setAuthMode("login")}
+                      className="w-full mt-4 py-3 text-slate-500 font-medium hover:text-slate-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  /* LOGIN / REGISTER FORM */
+                  <>
+                    {authMode === "register" && (
+                      <div className="mb-5">
+                        <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">Your Name</label>
+                        <input
+                          type="text"
+                          value={authForm.name}
+                          onChange={e => setAuthForm({ ...authForm, name: e.target.value })}
+                          placeholder="John Smith"
+                          className="input"
+                        />
+                      </div>
+                    )}
+
+                    <div className="mb-5">
+                      <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">Phone Number</label>
+                      <input
+                        type="tel"
+                        value={authForm.phone}
+                        onChange={e => setAuthForm({ ...authForm, phone: e.target.value })}
+                        placeholder="(555) 123-4567"
+                        className="input"
+                      />
+                    </div>
+
+                    <div className="mb-6">
+                      <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">
+                        {authMode === "register" ? "Create 4-digit PIN" : "Your PIN"}
+                      </label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={4}
+                        value={authForm.pin}
+                        onChange={e => setAuthForm({ ...authForm, pin: e.target.value.replace(/\D/g, '') })}
+                        placeholder="••••"
+                        className="input text-center text-3xl tracking-[0.5em] font-bold"
+                      />
+                    </div>
+
+                    {authMode === "register" && (
+                      <div className="mb-5">
+                        <label className="text-sm text-slate-500 dark:text-slate-400 font-medium block mb-2">Trip Invite Code</label>
+                        <input
+                          type="text"
+                          value={authForm.inviteCode}
+                          onChange={e => setAuthForm({ ...authForm, inviteCode: e.target.value.toUpperCase() })}
+                          placeholder="ABC123"
+                          className="input text-center text-xl tracking-widest font-mono uppercase"
+                          maxLength={6}
+                        />
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 text-center">Ask your trip organizer for the code</p>
+                      </div>
+                    )}
+
+                    {authError && (
+                      <div className="mb-5 p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-600 text-sm font-medium animate-scale-in">
+                        {authError}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={authMode === "login" ? handleLogin : handleRegister}
+                      className="btn-primary w-full"
+                    >
+                      {authMode === "login" ? "Sign In" : "Join Trip"}
+                    </button>
+
+                    {authMode === 'login' && (
+                      <div className="mt-6 text-center">
+                        <button
+                          onClick={() => setAuthMode('create')}
+                          className="text-sm text-slate-400 hover:text-emerald-600 transition-colors"
+                        >
+                          Planning a new trip? Create one →
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             )}
-
-            <div className="mb-5">
-              <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">Phone Number</label>
-              <input
-                type="tel"
-                value={authForm.phone}
-                onChange={e => setAuthForm({ ...authForm, phone: e.target.value })}
-                placeholder="(555) 123-4567"
-                className="input"
-              />
-            </div>
-
-            <div className="mb-6">
-              <label className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium block mb-2">
-                {authMode === "register" ? "Create 4-digit PIN" : "Your PIN"}
-              </label>
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                value={authForm.pin}
-                onChange={e => setAuthForm({ ...authForm, pin: e.target.value.replace(/\D/g, '') })}
-                placeholder="••••"
-                className="input text-center text-3xl tracking-[0.5em] font-bold"
-              />
-            </div>
-
-            {authError && (
-              <div className="mb-5 p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-600 text-sm font-medium animate-scale-in">
-                {authError}
-              </div>
-            )}
-
-            <button
-              onClick={authMode === "login" ? handleLogin : handleRegister}
-              className="btn-primary w-full"
-            >
-              {authMode === "login" ? "Sign In" : "Create Account"}
-            </button>
           </div>
 
           {players.length > 0 && (
